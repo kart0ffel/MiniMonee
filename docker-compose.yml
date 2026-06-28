@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  minimonee:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
