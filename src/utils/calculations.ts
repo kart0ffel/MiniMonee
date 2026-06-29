@@ -58,7 +58,20 @@ export function computeMetrics(
   period: Period,
 ): PeriodMetrics {
   const periodEntries = data.balanceEntries.filter((e) => e.periodId === period.id);
-  const periodTxs = data.transactions.filter((t) => t.periodId === period.id);
+
+  // Find surrounding periods first so we can do date-range transaction filtering
+  const sortedPeriods = [...data.periods].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+  const currentIdx = sortedPeriods.findIndex((p) => p.id === period.id);
+  const prevPeriod = currentIdx > 0 ? sortedPeriods[currentIdx - 1] : null;
+
+  // Transactions whose date falls in this period's window (standalone or legacy period-linked)
+  const periodTxs = data.transactions.filter((t) => {
+    if (t.date > period.date) return false;
+    if (prevPeriod && t.date <= prevPeriod.date) return false;
+    return true;
+  });
 
   // Net worth by category
   const netWorthByCategory: Partial<Record<AccountCategory, number>> = {};
@@ -75,13 +88,6 @@ export function computeMetrics(
   }
 
   const totalNetWorth = Object.values(netWorthByCategory).reduce((a, b) => a + (b ?? 0), 0);
-
-  // Find previous period
-  const sortedPeriods = [...data.periods].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-  );
-  const currentIdx = sortedPeriods.findIndex((p) => p.id === period.id);
-  const prevPeriod = currentIdx > 0 ? sortedPeriods[currentIdx - 1] : null;
 
   if (!prevPeriod) {
     return { totalNetWorth, netWorthByCategory, expenses: null, unrealizedPL: null, pensionPL: null };
@@ -154,7 +160,11 @@ export function buildWaterfallSteps(
   const prevEntries = prevPeriod
     ? data.balanceEntries.filter((e) => e.periodId === prevPeriod.id)
     : [];
-  const periodTxs = data.transactions.filter((t) => t.periodId === period.id);
+  const periodTxs = data.transactions.filter((t) => {
+    if (t.date > period.date) return false;
+    if (prevPeriod && t.date <= prevPeriod.date) return false;
+    return true;
+  });
 
   const cashIds = new Set(
     data.accounts.filter((a) => a.category === 'cash').map((a) => a.id),

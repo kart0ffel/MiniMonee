@@ -135,7 +135,7 @@ function BalancesTab() {
       note: '',
       metrics: { totalNetWorth: 0, netWorthByCategory: {}, expenses: null, unrealizedPL: null, pensionPL: null },
     };
-    addPeriod(period, [], []);
+    addPeriod(period, []);
     setNewPeriodDate('');
   }
 

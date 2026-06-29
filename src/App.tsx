@@ -9,6 +9,7 @@ import Expenses from './pages/Expenses';
 import Performance from './pages/Performance';
 import Waterfall from './pages/Waterfall';
 import DataManager from './pages/DataManager';
+import Transactions from './pages/Transactions';
 
 function AppRoutes() {
   const { data } = useData();
@@ -31,6 +32,7 @@ function AppRoutes() {
         <Route path="/waterfall" element={<Waterfall />} />
         <Route path="/input" element={<BalanceInput />} />
         <Route path="/accounts" element={<Setup />} />
+        <Route path="/transactions" element={<Transactions />} />
         <Route path="/data" element={<DataManager />} />
         <Route path="/welcome" element={<Navigate to="/overview" replace />} />
         <Route path="*" element={<Navigate to="/overview" replace />} />

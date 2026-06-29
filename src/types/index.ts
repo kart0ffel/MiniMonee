@@ -35,7 +35,7 @@ export interface BalanceEntry {
 
 export interface Transaction {
   id: string;
-  periodId: string;
+  periodId: string | null;
   date: string;
   type: TransactionType;
   amount: number;

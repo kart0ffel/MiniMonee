@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   TrendingUp, BarChart2, Activity, GitCommit,
-  PlusCircle, Settings, Database, Menu, X, DollarSign,
+  PlusCircle, Settings, Database, Menu, X, DollarSign, Receipt,
 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
 
 const SECONDARY_ITEMS = [
   { to: '/input', label: 'Add Period', icon: PlusCircle },
+  { to: '/transactions', label: 'Transactions', icon: Receipt },
   { to: '/accounts', label: 'Accounts', icon: Settings },
   { to: '/data', label: 'Data Manager', icon: Database },
 ];

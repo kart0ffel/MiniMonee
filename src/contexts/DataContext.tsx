@@ -11,8 +11,8 @@ interface DataContextValue {
   upsertAccount: (account: Account) => void;
   closeAccount: (accountId: string, closedAt: string) => void;
   deleteAccount: (accountId: string) => void;
-  addPeriod: (period: Period, entries: BalanceEntry[], transactions: Transaction[]) => void;
-  updatePeriod: (period: Period, entries: BalanceEntry[], transactions: Transaction[]) => void;
+  addPeriod: (period: Period, entries: BalanceEntry[]) => void;
+  updatePeriod: (period: Period, entries: BalanceEntry[]) => void;
   deletePeriod: (periodId: string) => void;
   upsertTransaction: (tx: Transaction) => void;
   deleteTransaction: (txId: string) => void;
@@ -81,13 +81,12 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, [mutate]);
 
   const addPeriod = useCallback(
-    (period: Period, entries: BalanceEntry[], transactions: Transaction[]) => {
+    (period: Period, entries: BalanceEntry[]) => {
       mutate((d) => {
         const newData: AppData = {
           ...d,
           periods: [...d.periods, period],
           balanceEntries: [...d.balanceEntries, ...entries],
-          transactions: [...d.transactions, ...transactions],
         };
         const metrics = computeMetrics(newData, period);
         return {
@@ -102,7 +101,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updatePeriod = useCallback(
-    (period: Period, entries: BalanceEntry[], transactions: Transaction[]) => {
+    (period: Period, entries: BalanceEntry[]) => {
       mutate((d) => {
         const newData: AppData = {
           ...d,
@@ -111,10 +110,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             ...d.balanceEntries.filter((e) => e.periodId !== period.id),
             ...entries,
           ],
-          transactions: [
-            ...d.transactions.filter((t) => t.periodId !== period.id),
-            ...transactions,
-          ],
+          // Transactions are now standalone and not managed through periods
         };
         return recalculateAllMetrics(newData);
       });
