@@ -6,7 +6,7 @@ import { exportToJson, importFromJson } from '../utils/storage';
 import { formatCurrency } from '../utils/currency';
 import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS, AccountCategory, BalanceEntry, Period } from '../types';
 
-type Tab = 'periods' | 'transactions' | 'accounts' | 'balances' | 'json';
+type Tab = 'periods' | 'transactions' | 'accounts' | 'balances' | 'rates' | 'json';
 
 const CAT_ORDER: AccountCategory[] = ['cash', 'pension', 'real_estate', 'liabilities', 'stocks', 'others'];
 
@@ -335,11 +335,20 @@ export default function DataManager() {
     }
   }
 
+  const rateEntries = Object.entries(data.exchangeRateCache).map(([key, rate]) => {
+    const [date, from, to] = key.split('|');
+    return { date, pair: `${from}→${to}`, rate };
+  });
+  const rateDates = [...new Set(rateEntries.map((e) => e.date))].sort();
+  const ratePairs = [...new Set(rateEntries.map((e) => e.pair))].sort();
+  const rateMap = new Map(rateEntries.map((e) => [`${e.pair}|${e.date}`, e.rate]));
+
   const tabs: { key: Tab; label: string }[] = [
     { key: 'periods', label: `Periods (${data.periods.length})` },
     { key: 'transactions', label: `Transactions (${data.transactions.length})` },
     { key: 'accounts', label: `Accounts (${data.accounts.length})` },
     { key: 'balances', label: 'Balances' },
+    { key: 'rates', label: `Rates (${Object.keys(data.exchangeRateCache).length})` },
     { key: 'json', label: 'Raw JSON' },
   ];
 
@@ -592,6 +601,54 @@ export default function DataManager() {
 
         {/* Balances tab */}
         {tab === 'balances' && <BalancesTab />}
+
+        {/* Rates tab */}
+        {tab === 'rates' && (
+          <div className="overflow-x-auto">
+            {ratePairs.length === 0 ? (
+              <p className="text-center text-gray-400 py-12 text-sm">No exchange rates cached yet.</p>
+            ) : (
+              <table className="text-sm border-collapse" style={{ minWidth: '100%' }}>
+                <thead>
+                  <tr>
+                    <th
+                      className="sticky left-0 z-10 bg-gray-50 px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-r border-gray-200"
+                      style={{ minWidth: 140 }}
+                    >
+                      Pair
+                    </th>
+                    {rateDates.map((d) => (
+                      <th
+                        key={d}
+                        className="bg-gray-50 px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap"
+                        style={{ minWidth: 100 }}
+                      >
+                        {new Date(d).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {ratePairs.map((pair) => (
+                    <tr key={pair} className="hover:bg-gray-50">
+                      <td className="sticky left-0 z-10 bg-white px-4 py-2 border-r border-gray-200 font-medium text-gray-800 whitespace-nowrap">
+                        {pair}
+                      </td>
+                      {rateDates.map((d) => {
+                        const rate = rateMap.get(`${pair}|${d}`);
+                        return (
+                          <td key={d} className="px-3 py-2 text-right tabular-nums text-gray-700">
+                            {rate !== undefined ? rate.toFixed(4) : <span className="text-gray-300">—</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         {/* JSON tab */}
         {tab === 'json' && (
