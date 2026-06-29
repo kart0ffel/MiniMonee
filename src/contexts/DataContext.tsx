@@ -17,6 +17,7 @@ interface DataContextValue {
   upsertTransaction: (tx: Transaction) => void;
   deleteTransaction: (txId: string) => void;
   fetchRate: (date: string, from: string, to: string) => Promise<number>;
+  refetchMissingRates: () => Promise<{ fixed: number; failed: number }>;
   recalculate: () => void;
   clearData: () => void;
 }
@@ -169,6 +170,59 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     [data, mutate],
   );
 
+  const refetchMissingRates = useCallback(async (): Promise<{ fixed: number; failed: number }> => {
+    if (!data) return { fixed: 0, failed: 0 };
+    const baseCurrency = data.meta.baseCurrency;
+    let fixed = 0;
+    let failed = 0;
+    const newCache = { ...data.exchangeRateCache };
+
+    const newEntries = await Promise.all(
+      data.balanceEntries.map(async (e) => {
+        if (e.exchangeRate !== 0) return e;
+        const acc = data.accounts.find((a) => a.id === e.accountId);
+        if (!acc || acc.currency === baseCurrency) return e;
+        const period = data.periods.find((p) => p.id === e.periodId);
+        if (!period) return e;
+        try {
+          const { rate, key } = await getExchangeRate(period.date, acc.currency, baseCurrency, newCache);
+          newCache[key] = rate;
+          fixed++;
+          return { ...e, exchangeRate: rate, valueInBase: e.value * rate };
+        } catch {
+          failed++;
+          return e;
+        }
+      }),
+    );
+
+    const newTxs = await Promise.all(
+      data.transactions.map(async (t) => {
+        if (t.exchangeRate !== 0 || t.currency === baseCurrency) return t;
+        try {
+          const { rate, key } = await getExchangeRate(t.date, t.currency, baseCurrency, newCache);
+          newCache[key] = rate;
+          fixed++;
+          return { ...t, exchangeRate: rate, amountInBase: t.amount * rate };
+        } catch {
+          failed++;
+          return t;
+        }
+      }),
+    );
+
+    mutate((d) =>
+      recalculateAllMetrics({
+        ...d,
+        balanceEntries: newEntries,
+        transactions: newTxs,
+        exchangeRateCache: newCache,
+      }),
+    );
+
+    return { fixed, failed };
+  }, [data, mutate]);
+
   const recalculate = useCallback(() => {
     mutate((d) => recalculateAllMetrics(d));
   }, [mutate]);
@@ -193,6 +247,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         upsertTransaction,
         deleteTransaction,
         fetchRate,
+        refetchMissingRates,
         recalculate,
         clearData,
       }}

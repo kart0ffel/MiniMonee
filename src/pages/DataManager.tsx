@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Download, Upload, Trash2, RefreshCw, AlertCircle, Edit2, Check, X } from 'lucide-react';
+import { Download, Upload, Trash2, RefreshCw, AlertCircle, Edit2, Check, X, Loader, Wifi } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { exportToJson, importFromJson } from '../utils/storage';
 import { formatCurrency } from '../utils/currency';
@@ -8,7 +8,7 @@ import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
 type Tab = 'periods' | 'transactions' | 'accounts' | 'json';
 
 export default function DataManager() {
-  const { data, setData, recalculate, clearData } = useData();
+  const { data, setData, recalculate, refetchMissingRates, clearData } = useData();
   const [tab, setTab] = useState<Tab>('periods');
   const [importError, setImportError] = useState('');
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
@@ -16,11 +16,24 @@ export default function DataManager() {
   const [jsonEditing, setJsonEditing] = useState(false);
   const [jsonError, setJsonError] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
+  const [refetching, setRefetching] = useState(false);
+  const [refetchResult, setRefetchResult] = useState<{ fixed: number; failed: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   if (!data) return null;
 
   const baseCurrency = data.meta.baseCurrency;
+  const missingRateCount =
+    data.balanceEntries.filter((e) => e.exchangeRate === 0).length +
+    data.transactions.filter((t) => t.exchangeRate === 0).length;
+
+  async function handleRefetchMissingRates() {
+    setRefetching(true);
+    setRefetchResult(null);
+    const result = await refetchMissingRates();
+    setRefetchResult(result);
+    setRefetching(false);
+  }
   const sortedPeriods = [...data.periods].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
@@ -102,6 +115,19 @@ export default function DataManager() {
           Recalculate Metrics
         </button>
         <button
+          onClick={handleRefetchMissingRates}
+          disabled={refetching || missingRateCount === 0}
+          className="flex items-center gap-2 border border-gray-300 hover:border-gray-400 text-gray-700 disabled:opacity-40 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          {refetching ? <Loader className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+          Refetch Missing Rates
+          {missingRateCount > 0 && (
+            <span className="ml-1 bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded-full">
+              {missingRateCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setConfirmClear(true)}
           className="flex items-center gap-2 border border-red-200 hover:border-red-400 text-red-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors ml-auto"
         >
@@ -137,6 +163,17 @@ export default function DataManager() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
           <p className="text-amber-800 text-sm font-medium mb-1">Imported with warnings:</p>
           {importWarnings.map((w, i) => <p key={i} className="text-amber-700 text-sm">• {w}</p>)}
+        </div>
+      )}
+      {refetchResult && (
+        <div className={`border rounded-xl p-3 flex gap-2 ${refetchResult.failed > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+          <AlertCircle className={`w-4 h-4 shrink-0 mt-0.5 ${refetchResult.failed > 0 ? 'text-amber-500' : 'text-green-500'}`} />
+          <p className={`text-sm ${refetchResult.failed > 0 ? 'text-amber-800' : 'text-green-800'}`}>
+            {refetchResult.fixed > 0
+              ? `Fixed ${refetchResult.fixed} exchange rate${refetchResult.fixed > 1 ? 's' : ''}.`
+              : 'No rates were updated.'}{' '}
+            {refetchResult.failed > 0 && `${refetchResult.failed} still could not be fetched — try again later.`}
+          </p>
         </div>
       )}
 

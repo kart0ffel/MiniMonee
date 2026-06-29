@@ -40,6 +40,8 @@ export default function BalanceInput() {
   const [txDrafts, setTxDrafts] = useState<TxDraft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
+  const [saved, setSaved] = useState(false);
 
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
 
@@ -113,6 +115,8 @@ export default function BalanceInput() {
   async function handleSubmit() {
     setLoading(true);
     setError('');
+    setSubmitWarnings([]);
+    const warnings: string[] = [];
     try {
       const periodId = editPeriodId ?? uuidv4();
 
@@ -122,7 +126,12 @@ export default function BalanceInput() {
         const rawVal = parseFloat(balances[acc.id] ?? '0') || 0;
         let rate = 1;
         if (acc.currency !== baseCurrency) {
-          rate = await fetchRate(periodDate, acc.currency, baseCurrency);
+          try {
+            rate = await fetchRate(periodDate, acc.currency, baseCurrency);
+          } catch {
+            warnings.push(`${acc.name} (${acc.currency}→${baseCurrency})`);
+            rate = 0;
+          }
         }
         entries.push({
           id: uuidv4(),
@@ -143,7 +152,13 @@ export default function BalanceInput() {
         const amount = isSigned && tx.direction === 'out' ? -absAmount : absAmount;
         let rate = 1;
         if (tx.currency !== baseCurrency) {
-          rate = await fetchRate(tx.date, tx.currency, baseCurrency);
+          try {
+            rate = await fetchRate(tx.date, tx.currency, baseCurrency);
+          } catch {
+            const label = tx.description || TRANSACTION_LABELS[tx.type];
+            warnings.push(`${label} (${tx.currency}→${baseCurrency})`);
+            rate = 0;
+          }
         }
         transactions.push({
           id: tx.id,
@@ -177,7 +192,12 @@ export default function BalanceInput() {
         addPeriod(period, entries, transactions);
       }
 
-      navigate('/overview');
+      if (warnings.length > 0) {
+        setSubmitWarnings(warnings);
+        setSaved(true);
+      } else {
+        navigate('/overview');
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -436,6 +456,24 @@ export default function BalanceInput() {
                 </span>
               </div>
             </div>
+            {submitWarnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
+                <div className="flex gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-amber-800 text-sm font-medium">
+                    Saved — but {submitWarnings.length} exchange rate{submitWarnings.length > 1 ? 's' : ''} could not be fetched:
+                  </p>
+                </div>
+                <ul className="pl-6 space-y-0.5">
+                  {submitWarnings.map((w, i) => (
+                    <li key={i} className="text-amber-700 text-xs">• {w}</li>
+                  ))}
+                </ul>
+                <p className="text-amber-700 text-xs pl-6">
+                  Use <strong>Refetch Missing Rates</strong> in Data Manager to fix these later.
+                </p>
+              </div>
+            )}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
                 <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
@@ -467,6 +505,14 @@ export default function BalanceInput() {
           >
             Next
             <ChevronRight className="w-4 h-4" />
+          </button>
+        ) : saved ? (
+          <button
+            onClick={() => navigate('/overview')}
+            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Check className="w-4 h-4" />
+            Continue to Overview
           </button>
         ) : (
           <button
