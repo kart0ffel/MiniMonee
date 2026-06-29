@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(ls /pkg/env/global/bin/ | grep -E \"node|npm\")",
-      "Bash(ls /opt/homebrew/bin/ | grep -E \"^node|^npm|^npx\")"
+      "Bash(ls /opt/homebrew/bin/ | grep -E \"^node|^npm|^npx\")",
+      "Bash(python3 -c ' *)",
+      "Bash(python3)"
     ]
   }
 }

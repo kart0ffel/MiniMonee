@@ -64,7 +64,8 @@ export default function Waterfall() {
   const periodIdx = sorted.findIndex((p) => p.id === period.id);
   const prevPeriod = periodIdx > 0 ? sorted[periodIdx - 1] : null;
 
-  const steps = buildWaterfallSteps(data, period, prevPeriod);
+  const steps = buildWaterfallSteps(data, period, prevPeriod)
+    .filter((s) => s.isTotal || s.value !== 0);
 
   // Build Recharts data: stacked bars [transparent base, visible value]
   const chartData = steps.map((s) => ({
