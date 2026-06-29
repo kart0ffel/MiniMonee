@@ -26,7 +26,7 @@ export default function DataManager() {
   );
 
   function handleExport() {
-    exportToJson(data);
+    exportToJson(data!);
   }
 
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {

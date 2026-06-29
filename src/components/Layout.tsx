@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   TrendingUp, BarChart2, Activity, GitCommit,
   PlusCircle, Settings, Database, Menu, X, DollarSign,
@@ -22,7 +22,6 @@ const SECONDARY_ITEMS = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { data } = useData();
-  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const latestPeriod = data

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { AppData, Account, Period, BalanceEntry, Transaction, ExchangeRateCache } from '../types';
+import { AppData, Account, Period, BalanceEntry, Transaction } from '../types';
 import { loadFromStorage, saveToStorage } from '../utils/storage';
 import { getExchangeRate } from '../utils/currency';
 import { computeMetrics, recalculateAllMetrics } from '../utils/calculations';
@@ -35,14 +35,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     if (data) saveToStorage(data);
   }, [data]);
 
-  const updateMeta = useCallback((updates: Partial<AppData['meta']>) => {
-    setData((prev) => {
-      if (!prev) return prev;
-      return { ...prev, meta: { ...prev.meta, ...updates } };
-    } as unknown as AppData);
-  }, [setData]);
-
-  // Helper that runs inside setData to avoid stale closure
+  // Helper that runs mutations without stale closure issues
   const mutate = useCallback((fn: (d: AppData) => AppData) => {
     setDataState((prev) => {
       if (!prev) return prev;
@@ -51,6 +44,10 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
+
+  const updateMeta = useCallback((updates: Partial<AppData['meta']>) => {
+    mutate((d) => ({ ...d, meta: { ...d.meta, ...updates } }));
+  }, [mutate]);
 
   const upsertAccount = useCallback((account: Account) => {
     mutate((d) => {

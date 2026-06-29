@@ -174,7 +174,6 @@ export default function Waterfall() {
           <tbody className="divide-y divide-gray-100">
             {steps.map((s, i) => {
               const delta = s.isTotal ? null : (s.isNegative ? -s.value : s.value);
-              const running = s.isTotal ? s.value : s.base + (s.isNegative ? 0 : s.value);
               return (
                 <tr key={i} className={`hover:bg-gray-50 ${s.isTotal ? 'bg-gray-50 font-semibold' : ''}`}>
                   <td className="px-5 py-3 text-gray-700">{s.name}</td>

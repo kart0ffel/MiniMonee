@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  ResponsiveContainer,
 } from 'recharts';
 import { PlusCircle, TrendingUp, TrendingDown } from 'lucide-react';
 import { useData } from '../contexts/DataContext';

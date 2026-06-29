@@ -49,7 +49,7 @@ export default function Setup() {
 
   function saveForm() {
     if (!form || !form.name.trim()) return;
-    const existing = data.accounts.find((a) => a.id === form.id);
+    const existing = data!.accounts.find((a) => a.id === form.id);
     const account: Account = {
       id: form.id,
       name: form.name.trim(),
