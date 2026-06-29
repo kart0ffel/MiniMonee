@@ -335,20 +335,35 @@ export default function DataManager() {
     }
   }
 
-  const rateEntries = Object.entries(data.exchangeRateCache).map(([key, rate]) => {
+  // Collect rates from all three sources: cache, balance entries, transactions
+  const rateMap = new Map<string, number>();
+  for (const [key, rate] of Object.entries(data.exchangeRateCache)) {
     const [date, from, to] = key.split('|');
-    return { date, pair: `${from}→${to}`, rate };
-  });
-  const rateDates = [...new Set(rateEntries.map((e) => e.date))].sort();
-  const ratePairs = [...new Set(rateEntries.map((e) => e.pair))].sort();
-  const rateMap = new Map(rateEntries.map((e) => [`${e.pair}|${e.date}`, e.rate]));
+    rateMap.set(`${from}→${to}|${date}`, rate);
+  }
+  for (const entry of data.balanceEntries) {
+    if (!entry.exchangeRate || entry.exchangeRate === 0) continue;
+    const acc = data.accounts.find((a) => a.id === entry.accountId);
+    const period = data.periods.find((p) => p.id === entry.periodId);
+    if (!acc || !period || acc.currency === baseCurrency) continue;
+    const mapKey = `${acc.currency}→${baseCurrency}|${period.date}`;
+    if (!rateMap.has(mapKey)) rateMap.set(mapKey, entry.exchangeRate);
+  }
+  for (const tx of data.transactions) {
+    if (!tx.exchangeRate || tx.exchangeRate === 0 || tx.currency === baseCurrency) continue;
+    const mapKey = `${tx.currency}→${baseCurrency}|${tx.date}`;
+    if (!rateMap.has(mapKey)) rateMap.set(mapKey, tx.exchangeRate);
+  }
+
+  const rateDates = [...new Set([...rateMap.keys()].map((k) => k.split('|')[1]))].sort();
+  const ratePairs = [...new Set([...rateMap.keys()].map((k) => k.split('|')[0]))].sort();
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'periods', label: `Periods (${data.periods.length})` },
     { key: 'transactions', label: `Transactions (${data.transactions.length})` },
     { key: 'accounts', label: `Accounts (${data.accounts.length})` },
     { key: 'balances', label: 'Balances' },
-    { key: 'rates', label: `Rates (${Object.keys(data.exchangeRateCache).length})` },
+    { key: 'rates', label: `Rates (${rateMap.size})` },
     { key: 'json', label: 'Raw JSON' },
   ];
 
