@@ -19,12 +19,6 @@ const TX_TYPES: TransactionType[] = [
   'income_salary', 'income_dividend', 'tax_paid', 'investment', 'pension_activity',
 ];
 
-function directionLabel(type: TransactionType, dir: string): string {
-  if (type === 'investment') return dir === 'in' ? 'Bought' : 'Sold';
-  if (type === 'pension_activity') return dir === 'in' ? 'Contribution' : 'Withdrawal';
-  return '';
-}
-
 function txLabel(tx: Transaction): string {
   const base = LEGACY_TRANSACTION_LABELS[tx.type] ?? tx.type;
   if (tx.type === 'investment' || (tx.type as string) === 'investment_bought' || (tx.type as string) === 'investment_sold') {
