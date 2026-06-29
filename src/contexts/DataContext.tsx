@@ -16,6 +16,8 @@ interface DataContextValue {
   deletePeriod: (periodId: string) => void;
   upsertTransaction: (tx: Transaction) => void;
   deleteTransaction: (txId: string) => void;
+  upsertBalanceEntry: (entry: BalanceEntry) => void;
+  batchUpsertBalanceEntries: (entries: BalanceEntry[]) => void;
   fetchRate: (date: string, from: string, to: string) => Promise<number>;
   refetchMissingRates: () => Promise<{ fixed: number; failed: number }>;
   recalculate: () => void;
@@ -129,6 +131,37 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         transactions: d.transactions.filter((t) => t.periodId !== periodId),
       };
       return recalculateAllMetrics(newData);
+    });
+  }, [mutate]);
+
+  const upsertBalanceEntry = useCallback((entry: BalanceEntry) => {
+    mutate((d) => {
+      const idx = d.balanceEntries.findIndex(
+        (e) => e.accountId === entry.accountId && e.periodId === entry.periodId,
+      );
+      const merged = idx >= 0 ? { ...entry, id: d.balanceEntries[idx].id } : entry;
+      const newEntries =
+        idx >= 0
+          ? d.balanceEntries.map((e, i) => (i === idx ? merged : e))
+          : [...d.balanceEntries, merged];
+      return recalculateAllMetrics({ ...d, balanceEntries: newEntries });
+    });
+  }, [mutate]);
+
+  const batchUpsertBalanceEntries = useCallback((entries: BalanceEntry[]) => {
+    mutate((d) => {
+      let newEntries = [...d.balanceEntries];
+      for (const entry of entries) {
+        const idx = newEntries.findIndex(
+          (e) => e.accountId === entry.accountId && e.periodId === entry.periodId,
+        );
+        if (idx >= 0) {
+          newEntries[idx] = { ...entry, id: newEntries[idx].id };
+        } else {
+          newEntries = [...newEntries, entry];
+        }
+      }
+      return recalculateAllMetrics({ ...d, balanceEntries: newEntries });
     });
   }, [mutate]);
 
@@ -246,6 +279,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         deletePeriod,
         upsertTransaction,
         deleteTransaction,
+        upsertBalanceEntry,
+        batchUpsertBalanceEntries,
         fetchRate,
         refetchMissingRates,
         recalculate,

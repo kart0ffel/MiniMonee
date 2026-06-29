@@ -1,11 +1,269 @@
 import { useState, useRef } from 'react';
-import { Download, Upload, Trash2, RefreshCw, AlertCircle, Edit2, Check, X, Loader, Wifi } from 'lucide-react';
+import { Download, Upload, Trash2, RefreshCw, AlertCircle, Edit2, Check, X, Loader, Wifi, Plus } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { useData } from '../contexts/DataContext';
 import { exportToJson, importFromJson } from '../utils/storage';
 import { formatCurrency } from '../utils/currency';
-import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
+import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS, AccountCategory, BalanceEntry, Period } from '../types';
 
-type Tab = 'periods' | 'transactions' | 'accounts' | 'json';
+type Tab = 'periods' | 'transactions' | 'accounts' | 'balances' | 'json';
+
+const CAT_ORDER: AccountCategory[] = ['cash', 'pension', 'real_estate', 'liabilities', 'stocks', 'others'];
+
+function BalancesTab() {
+  const { data, upsertBalanceEntry, batchUpsertBalanceEntries, addPeriod } = useData();
+  const [newPeriodDate, setNewPeriodDate] = useState('');
+  const [editCell, setEditCell] = useState<{ accountId: string; periodId: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const navigating = useRef(false);
+
+  if (!data) return null;
+
+  const baseCurrency = data.meta.baseCurrency;
+
+  const periodColumns = [...data.periods].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+
+  const accountRows = [...data.accounts].sort((a, b) => {
+    const ci = CAT_ORDER.indexOf(a.category) - CAT_ORDER.indexOf(b.category);
+    return ci !== 0 ? ci : a.name.localeCompare(b.name);
+  });
+
+  const accountIndexMap = new Map(accountRows.map((a, i) => [a.id, i]));
+
+  const groupedAccounts = CAT_ORDER
+    .map((cat) => ({ category: cat, accounts: accountRows.filter((a) => a.category === cat) }))
+    .filter((g) => g.accounts.length > 0);
+
+  function getCellValue(accountId: string, periodId: string): string {
+    const entry = data!.balanceEntries.find(
+      (e) => e.accountId === accountId && e.periodId === periodId,
+    );
+    return entry !== undefined ? String(entry.value) : '';
+  }
+
+  function buildEntry(accountId: string, periodId: string, valueStr: string): BalanceEntry {
+    const num = parseFloat(valueStr.replace(/[^\d.,-]/g, '').replace(',', '.')) || 0;
+    const account = data!.accounts.find((a) => a.id === accountId)!;
+    const period = data!.periods.find((p) => p.id === periodId)!;
+    const existing = data!.balanceEntries.find(
+      (e) => e.accountId === accountId && e.periodId === periodId,
+    );
+    const cacheKey = `${period.date}|${account.currency}|${baseCurrency}`;
+    const rate =
+      account.currency === baseCurrency
+        ? 1
+        : existing?.exchangeRate || data!.exchangeRateCache[cacheKey] || 0;
+    return {
+      id: existing?.id ?? uuidv4(),
+      periodId,
+      accountId,
+      value: num,
+      valueInBase: num * rate,
+      exchangeRate: rate,
+    };
+  }
+
+  function commitCell(accountId: string, periodId: string, valueStr: string) {
+    if (valueStr.trim() === '') return;
+    upsertBalanceEntry(buildEntry(accountId, periodId, valueStr));
+  }
+
+  function startEdit(accountId: string, periodId: string) {
+    setEditCell({ accountId, periodId });
+    setEditValue(getCellValue(accountId, periodId));
+  }
+
+  function handleCellKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    ai: number,
+    pi: number,
+  ) {
+    if (e.key === 'Escape') { setEditCell(null); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      commitCell(accountRows[ai].id, periodColumns[pi].id, editValue);
+      navigating.current = true;
+      setTimeout(() => { navigating.current = false; }, 0);
+      if (e.key === 'Tab') {
+        const nextPi = e.shiftKey ? pi - 1 : pi + 1;
+        if (nextPi >= 0 && nextPi < periodColumns.length) {
+          const next = { accountId: accountRows[ai].id, periodId: periodColumns[nextPi].id };
+          setEditCell(next); setEditValue(getCellValue(next.accountId, next.periodId));
+        } else setEditCell(null);
+      } else {
+        const nextAi = ai + 1;
+        if (nextAi < accountRows.length) {
+          const next = { accountId: accountRows[nextAi].id, periodId: periodColumns[pi].id };
+          setEditCell(next); setEditValue(getCellValue(next.accountId, next.periodId));
+        } else setEditCell(null);
+      }
+    }
+  }
+
+  function handlePaste(
+    e: React.ClipboardEvent<HTMLInputElement>,
+    startAi: number,
+    startPi: number,
+  ) {
+    const text = e.clipboardData.getData('text');
+    const rows = text.trim().split(/\r?\n/).map((r) => r.split('\t'));
+    if (rows.length === 1 && rows[0].length === 1) return;
+    e.preventDefault();
+    const entries: BalanceEntry[] = [];
+    for (let ri = 0; ri < rows.length; ri++) {
+      const ai = startAi + ri;
+      if (ai >= accountRows.length) break;
+      for (let ci = 0; ci < rows[ri].length; ci++) {
+        const pi = startPi + ci;
+        if (pi >= periodColumns.length) break;
+        const val = rows[ri][ci].trim();
+        if (!val) continue;
+        entries.push(buildEntry(accountRows[ai].id, periodColumns[pi].id, val));
+      }
+    }
+    if (entries.length > 0) batchUpsertBalanceEntries(entries);
+    setEditCell(null);
+  }
+
+  function handleAddPeriod() {
+    if (!newPeriodDate || data!.periods.some((p) => p.date === newPeriodDate)) return;
+    const period: Period = {
+      id: uuidv4(),
+      date: newPeriodDate,
+      note: '',
+      metrics: { totalNetWorth: 0, netWorthByCategory: {}, expenses: null, unrealizedPL: null, pensionPL: null },
+    };
+    addPeriod(period, [], []);
+    setNewPeriodDate('');
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <span className="text-sm text-gray-600 font-medium">Add period:</span>
+        <input
+          type="date"
+          value={newPeriodDate}
+          onChange={(e) => setNewPeriodDate(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+        />
+        <button
+          onClick={handleAddPeriod}
+          disabled={!newPeriodDate || data.periods.some((p) => p.date === newPeriodDate)}
+          className="flex items-center gap-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white px-3 py-1 rounded text-sm font-medium transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Add
+        </button>
+        <span className="text-xs text-gray-400 ml-1 hidden sm:block">
+          Tip: click a cell then paste (Ctrl/Cmd+V) to fill multiple cells from a spreadsheet
+        </span>
+      </div>
+
+      <div className="overflow-x-auto">
+        {periodColumns.length === 0 ? (
+          <p className="text-center text-gray-400 py-12 text-sm">
+            No periods yet — add one above or use Add Period in the sidebar.
+          </p>
+        ) : (
+          <table className="text-sm border-collapse" style={{ minWidth: '100%' }}>
+            <thead>
+              <tr>
+                <th
+                  className="sticky left-0 z-10 bg-gray-50 px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-r border-gray-200"
+                  style={{ minWidth: 200 }}
+                >
+                  Account
+                </th>
+                {periodColumns.map((p) => (
+                  <th
+                    key={p.id}
+                    className="bg-gray-50 px-3 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap"
+                    style={{ minWidth: 100 }}
+                  >
+                    {new Date(p.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {groupedAccounts.flatMap(({ category, accounts }) => [
+                <tr key={`cat-${category}`} className="bg-gray-50">
+                  <td className="sticky left-0 z-10 bg-gray-50 px-4 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                    {CATEGORY_LABELS[category as AccountCategory]}
+                  </td>
+                  {periodColumns.map((p) => (
+                    <td key={p.id} className="bg-gray-50 border-b border-gray-100" />
+                  ))}
+                </tr>,
+                ...accounts.map((acc) => (
+                  <tr key={acc.id} className={`border-b border-gray-100 ${!acc.isActive ? 'opacity-60' : ''}`}>
+                    <td className="sticky left-0 z-10 bg-white px-4 py-2 border-r border-gray-200 font-medium text-gray-800 whitespace-nowrap">
+                      {acc.name}
+                      <span className="ml-1.5 text-xs font-normal text-gray-400">{acc.currency}</span>
+                    </td>
+                    {periodColumns.map((period, pi) => {
+                      const isEditing =
+                        editCell?.accountId === acc.id && editCell?.periodId === period.id;
+                      const rawVal = getCellValue(acc.id, period.id);
+                      const ai = accountIndexMap.get(acc.id)!;
+                      return (
+                        <td key={period.id} className="p-0">
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              type="text"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={() => {
+                                if (navigating.current) return;
+                                commitCell(acc.id, period.id, editValue);
+                                setEditCell(null);
+                              }}
+                              onKeyDown={(e) => handleCellKeyDown(e, ai, pi)}
+                              onPaste={(e) => handlePaste(e, ai, pi)}
+                              className="w-full px-3 py-2 text-right text-sm border-2 border-brand-500 outline-none bg-white"
+                              style={{ minWidth: 100 }}
+                            />
+                          ) : (
+                            <div
+                              className="px-3 py-2 text-right cursor-pointer hover:bg-brand-50 select-none"
+                              onClick={() => startEdit(acc.id, period.id)}
+                            >
+                              <span className={`text-sm tabular-nums ${rawVal === '' ? 'text-gray-300' : 'text-gray-800'}`}>
+                                {rawVal === ''
+                                  ? '—'
+                                  : Number(rawVal).toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )),
+              ])}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-300 bg-gray-50">
+                <td className="sticky left-0 z-10 bg-gray-50 px-4 py-2.5 font-semibold text-gray-700 border-r border-gray-200 text-sm">
+                  Net Worth
+                </td>
+                {periodColumns.map((p) => (
+                  <td key={p.id} className="px-3 py-2.5 text-right font-semibold text-gray-900 text-sm tabular-nums">
+                    {formatCurrency(p.metrics.totalNetWorth, baseCurrency, true)}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
 
 export default function DataManager() {
   const { data, setData, recalculate, refetchMissingRates, clearData } = useData();
@@ -81,6 +339,7 @@ export default function DataManager() {
     { key: 'periods', label: `Periods (${data.periods.length})` },
     { key: 'transactions', label: `Transactions (${data.transactions.length})` },
     { key: 'accounts', label: `Accounts (${data.accounts.length})` },
+    { key: 'balances', label: 'Balances' },
     { key: 'json', label: 'Raw JSON' },
   ];
 
@@ -330,6 +589,9 @@ export default function DataManager() {
             </table>
           </div>
         )}
+
+        {/* Balances tab */}
+        {tab === 'balances' && <BalancesTab />}
 
         {/* JSON tab */}
         {tab === 'json' && (
