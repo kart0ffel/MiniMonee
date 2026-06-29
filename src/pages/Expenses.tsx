@@ -83,7 +83,7 @@ export default function Expenses() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Calculated as: Start Cash + Income − Net Invested − Taxes − End Cash
+          Calculated as: Start Cash + Income + Dividends − Invested bought + Invested sold − Taxes − Pension contribution − End Cash
         </p>
       </div>
 

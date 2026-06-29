@@ -105,7 +105,8 @@ export function computeMetrics(
   const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
   const netInvested = investBought - investSold;
   const taxesPaid = sumTx(periodTxs, ['tax_paid']);
-  const expenses = startCash + income - netInvested - taxesPaid - endCash;
+  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
+  const expenses = startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
 
   // --- Unrealized P&L (stocks) ---
   const investmentAccountIds = new Set(
@@ -123,7 +124,6 @@ export function computeMetrics(
   );
   const startPension = sumEntries(prevEntries, pensionAccountIds);
   const endPension = sumEntries(periodEntries, pensionAccountIds);
-  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
   const netPensionInput = pensionContrib - pensionWithdraw;
   const pensionPL = endPension - startPension - netPensionInput;
 

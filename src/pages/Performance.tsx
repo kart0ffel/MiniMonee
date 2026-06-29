@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useData } from '../contexts/DataContext';
@@ -94,31 +94,41 @@ export default function Performance() {
     periodId: p.id,
   }));
 
-  const accountsWithData = data.accounts.filter((a) =>
-    data.balanceEntries.some((e) => e.accountId === a.id),
+  const ACCOUNT_COLORS = [
+    '#8b5cf6', '#6366f1', '#3b82f6', '#10b981', '#f59e0b',
+    '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#ec4899', '#a78bfa', '#ef4444',
+  ];
+
+  const allPeriodsSorted = [...data.periods].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
 
-  const accountBalanceData = sorted.map((period) => {
+  const investmentAccounts = data.accounts.filter(
+    (a) => a.category === 'stocks' || a.category === 'pension',
+  );
+
+  const accountPlData = sorted.map((period) => {
+    const idxInAll = allPeriodsSorted.findIndex((p) => p.id === period.id);
+    const prevPeriod = idxInAll > 0 ? allPeriodsSorted[idxInAll - 1] : null;
     const point: Record<string, number | string> = {
       date: new Date(period.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
     };
-    for (const acc of accountsWithData) {
-      const entry = data.balanceEntries.find(
+    for (const acc of investmentAccounts) {
+      const curr = data.balanceEntries.find(
         (e) => e.accountId === acc.id && e.periodId === period.id,
       );
-      if (entry !== undefined) point[acc.id] = entry.valueInBase;
+      if (!curr) continue;
+      const prev = prevPeriod
+        ? data.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === prevPeriod.id)
+        : null;
+      point[acc.id] = curr.valueInBase - (prev?.valueInBase ?? 0);
     }
     return point;
   });
 
-  const visibleAccounts = accountsWithData.filter((acc) =>
-    accountBalanceData.some((d) => d[acc.id] !== undefined),
+  const visibleInvestmentAccounts = investmentAccounts.filter((acc) =>
+    accountPlData.some((d) => d[acc.id] !== undefined),
   );
-
-  const ACCOUNT_COLORS = [
-    '#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#6366f1',
-    '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#ec4899', '#ef4444', '#a78bfa',
-  ];
 
   const latest = sorted[sorted.length - 1];
   const latestUnrealized = latest?.metrics.unrealizedPL ?? null;
@@ -228,44 +238,36 @@ export default function Performance() {
         </div>
       )}
 
-      {/* Account balance chart */}
-      {sorted.length > 0 && visibleAccounts.length > 0 && (
+      {/* P&L by account chart */}
+      {sorted.length > 0 && visibleInvestmentAccounts.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-          <h2 className="font-semibold text-gray-900 mb-4">Balance by Account</h2>
+          <h2 className="font-semibold text-gray-900 mb-4">P&amp;L by Account</h2>
           <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={accountBalanceData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            <BarChart data={accountPlData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }} barGap={4}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} />
               <YAxis
                 tick={{ fontSize: 11 }}
                 tickFormatter={(v) => formatCurrency(v, baseCurrency, true)}
               />
-              <Tooltip
-                formatter={(value: number, name: string) => [
-                  formatCurrency(value, baseCurrency),
-                  visibleAccounts.find((a) => a.id === name)?.name ?? name,
-                ]}
-                labelStyle={{ fontWeight: 600, color: '#374151' }}
-                contentStyle={{ borderRadius: 12, border: '1px solid #e5e7eb', fontSize: 13 }}
-              />
-              <Legend
-                formatter={(value: string) => visibleAccounts.find((a) => a.id === value)?.name ?? value}
-                wrapperStyle={{ fontSize: 12 }}
-              />
+              <Tooltip content={<CustomTooltip baseCurrency={baseCurrency} />} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
               <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
-              {visibleAccounts.map((acc, i) => (
-                <Line
-                  key={acc.id}
-                  type="monotone"
-                  dataKey={acc.id}
-                  name={acc.id}
-                  stroke={ACCOUNT_COLORS[i % ACCOUNT_COLORS.length]}
-                  strokeWidth={2}
-                  dot={false}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
+              {visibleInvestmentAccounts.map((acc, i) => {
+                const color = ACCOUNT_COLORS[i % ACCOUNT_COLORS.length];
+                return (
+                  <Bar key={acc.id} dataKey={acc.id} name={acc.name} radius={[4, 4, 0, 0]} maxBarSize={40}>
+                    {accountPlData.map((entry, j) => (
+                      <Cell
+                        key={j}
+                        fill={(entry[acc.id] as number ?? 0) >= 0 ? color : '#fca5a5'}
+                        opacity={0.85}
+                      />
+                    ))}
+                  </Bar>
+                );
+              })}
+            </BarChart>
           </ResponsiveContainer>
         </div>
       )}
