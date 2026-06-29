@@ -1,9 +1,30 @@
+import { useState } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
+
+type RangeKey = '1m' | '3m' | '6m' | '1Y' | '5Y' | 'all' | 'custom';
+
+const PRESETS: { key: RangeKey; label: string }[] = [
+  { key: '1m', label: '1M' },
+  { key: '3m', label: '3M' },
+  { key: '6m', label: '6M' },
+  { key: '1Y', label: '1Y' },
+  { key: '5Y', label: '5Y' },
+  { key: 'all', label: 'All' },
+  { key: 'custom', label: 'Custom' },
+];
+
+function getRangeFrom(key: RangeKey): string | null {
+  if (key === 'all' || key === 'custom') return null;
+  const months = { '1m': 1, '3m': 3, '6m': 6, '1Y': 12, '5Y': 60 }[key];
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload, label, baseCurrency }: any) {
@@ -45,12 +66,26 @@ function StatCard({ label, value, currency, sub }: { label: string; value: numbe
 
 export default function Performance() {
   const { data } = useData();
+  const [range, setRange] = useState<RangeKey>('1Y');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
   if (!data) return null;
 
   const baseCurrency = data.meta.baseCurrency;
-  const sorted = [...data.periods]
+
+  const allSorted = [...data.periods]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .filter((p) => p.metrics.unrealizedPL !== null || p.metrics.pensionPL !== null);
+
+  const from = range === 'custom' ? customFrom : getRangeFrom(range);
+  const to = range === 'custom' ? customTo : null;
+
+  const sorted = allSorted.filter((p) => {
+    if (from && p.date < from) return false;
+    if (to && p.date > to) return false;
+    return true;
+  });
 
   const chartData = sorted.map((p) => ({
     date: new Date(p.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
@@ -59,13 +94,11 @@ export default function Performance() {
     periodId: p.id,
   }));
 
-  const allPeriods = [...data.periods].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-  );
-  const totalUnrealized = allPeriods.reduce((s, p) => s + (p.metrics.unrealizedPL ?? 0), 0);
-  const totalPension = allPeriods.reduce((s, p) => s + (p.metrics.pensionPL ?? 0), 0);
-  const latestUnrealized = sorted[sorted.length - 1]?.metrics.unrealizedPL ?? null;
-  const latestPension = sorted[sorted.length - 1]?.metrics.pensionPL ?? null;
+  const latest = sorted[sorted.length - 1];
+  const latestUnrealized = latest?.metrics.unrealizedPL ?? null;
+  const latestPension = latest?.metrics.pensionPL ?? null;
+  const totalUnrealized = sorted.reduce((s, p) => s + (p.metrics.unrealizedPL ?? 0), 0);
+  const totalPension = sorted.reduce((s, p) => s + (p.metrics.pensionPL ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -76,18 +109,56 @@ export default function Performance() {
         </p>
       </div>
 
+      {/* Range selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+          {PRESETS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setRange(key)}
+              className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${
+                range === key
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {range === 'custom' && (
+          <div className="flex items-center gap-2 text-sm">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+            <span className="text-gray-400">to</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+          </div>
+        )}
+      </div>
+
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard label="Last Period — Invest." value={latestUnrealized} currency={baseCurrency} sub="Stocks" />
         <StatCard label="Last Period — Pension" value={latestPension} currency={baseCurrency} sub="Pension growth" />
-        <StatCard label="Cumulative Invest." value={totalUnrealized} currency={baseCurrency} />
-        <StatCard label="Cumulative Pension" value={totalPension} currency={baseCurrency} />
+        <StatCard label="Total Invest. P&L" value={sorted.length ? totalUnrealized : null} currency={baseCurrency} />
+        <StatCard label="Total Pension P&L" value={sorted.length ? totalPension : null} currency={baseCurrency} />
       </div>
 
       {chartData.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
           <p className="text-gray-500">
-            Performance is calculated from the second period onward. Add more data points to see charts.
+            {allSorted.length === 0
+              ? 'Performance is calculated from the second period onward. Add more data points to see charts.'
+              : 'No periods in the selected range.'}
           </p>
         </div>
       ) : (
