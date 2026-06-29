@@ -23,6 +23,36 @@ function sumTx(
     .reduce((acc, t) => acc + t.amountInBase, 0);
 }
 
+// Handles both legacy split types and new signed unified types.
+// Returns bought and sold as positive numbers.
+function getInvestFlows(txs: Transaction[]): { bought: number; sold: number } {
+  let bought = 0, sold = 0;
+  for (const t of txs) {
+    const type = t.type as string;
+    if (type === 'investment_bought') bought += t.amountInBase;
+    else if (type === 'investment_sold') sold += t.amountInBase;
+    else if (type === 'investment') {
+      if (t.amountInBase >= 0) bought += t.amountInBase;
+      else sold -= t.amountInBase;
+    }
+  }
+  return { bought, sold };
+}
+
+function getPensionFlows(txs: Transaction[]): { contrib: number; withdraw: number } {
+  let contrib = 0, withdraw = 0;
+  for (const t of txs) {
+    const type = t.type as string;
+    if (type === 'pension_contribution') contrib += t.amountInBase;
+    else if (type === 'pension_withdrawal') withdraw += t.amountInBase;
+    else if (type === 'pension_activity') {
+      if (t.amountInBase >= 0) contrib += t.amountInBase;
+      else withdraw -= t.amountInBase;
+    }
+  }
+  return { contrib, withdraw };
+}
+
 export function computeMetrics(
   data: AppData,
   period: Period,
@@ -66,21 +96,19 @@ export function computeMetrics(
   const startCash = sumEntries(prevEntries, cashAccountIds);
   const endCash = sumEntries(periodEntries, cashAccountIds);
   const income = sumTx(periodTxs, ['income_salary', 'income_dividend']);
-  const investBought = sumTx(periodTxs, ['investment_bought']);
-  const investSold = sumTx(periodTxs, ['investment_sold']);
+  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
   const netInvested = investBought - investSold;
   const taxesPaid = sumTx(periodTxs, ['tax_paid']);
   const expenses = startCash + income - netInvested - taxesPaid - endCash;
 
-  // --- Unrealized P&L (stocks + brokerage) ---
+  // --- Unrealized P&L (stocks) ---
   const investmentAccountIds = new Set(
     data.accounts
-      .filter((a) => a.category === 'stocks' || a.category === 'brokerage')
+      .filter((a) => a.category === 'stocks')
       .map((a) => a.id),
   );
   const startStocks = sumEntries(prevEntries, investmentAccountIds);
   const endStocks = sumEntries(periodEntries, investmentAccountIds);
-  // Market gain only: end - start - net new money put in
   const unrealizedPL = endStocks - startStocks - netInvested;
 
   // --- Pension P&L ---
@@ -89,10 +117,8 @@ export function computeMetrics(
   );
   const startPension = sumEntries(prevEntries, pensionAccountIds);
   const endPension = sumEntries(periodEntries, pensionAccountIds);
-  const pensionContrib = sumTx(periodTxs, ['pension_contribution']);
-  const pensionWithdraw = sumTx(periodTxs, ['pension_withdrawal']);
+  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
   const netPensionInput = pensionContrib - pensionWithdraw;
-  // Growth only: end - start - net contributions
   const pensionPL = endPension - startPension - netPensionInput;
 
   return { totalNetWorth, netWorthByCategory, expenses, unrealizedPL, pensionPL };
@@ -137,11 +163,9 @@ export function buildWaterfallSteps(
   const startCash = sumEntries(prevEntries, cashIds);
   const endCash = sumEntries(periodEntries, cashIds);
   const income = sumTx(periodTxs, ['income_salary', 'income_dividend']);
-  const investBought = sumTx(periodTxs, ['investment_bought']);
-  const investSold = sumTx(periodTxs, ['investment_sold']);
+  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
   const taxesPaid = sumTx(periodTxs, ['tax_paid']);
-  const pensionContrib = sumTx(periodTxs, ['pension_contribution']);
-  const pensionWithdraw = sumTx(periodTxs, ['pension_withdrawal']);
+  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
 
   // Expenses is the residual
   const expenses =

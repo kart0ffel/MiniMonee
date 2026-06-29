@@ -3,7 +3,6 @@ export type AccountCategory =
   | 'pension'
   | 'real_estate'
   | 'liabilities'
-  | 'brokerage'
   | 'stocks'
   | 'others';
 
@@ -11,10 +10,8 @@ export type TransactionType =
   | 'income_salary'
   | 'income_dividend'
   | 'tax_paid'
-  | 'investment_bought'
-  | 'investment_sold'
-  | 'pension_contribution'
-  | 'pension_withdrawal';
+  | 'investment'
+  | 'pension_activity';
 
 export interface Account {
   id: string;
@@ -70,6 +67,7 @@ export interface ExchangeRateCache {
 export interface AppMeta {
   version: string;
   baseCurrency: string;
+  userName?: string;
   createdAt: string;
   lastUpdated: string;
 }
@@ -88,7 +86,6 @@ export const CATEGORY_LABELS: Record<AccountCategory, string> = {
   pension: 'Pension',
   real_estate: 'Real Estate',
   liabilities: 'Liabilities',
-  brokerage: 'Brokerage',
   stocks: 'Stocks',
   others: 'Others',
 };
@@ -98,7 +95,6 @@ export const CATEGORY_COLORS: Record<AccountCategory, string> = {
   pension: '#6366f1',
   real_estate: '#f59e0b',
   liabilities: '#ef4444',
-  brokerage: '#3b82f6',
   stocks: '#8b5cf6',
   others: '#6b7280',
 };
@@ -107,6 +103,13 @@ export const TRANSACTION_LABELS: Record<TransactionType, string> = {
   income_salary: 'Salary / Income',
   income_dividend: 'Dividends',
   tax_paid: 'Taxes Paid',
+  investment: 'Investment',
+  pension_activity: 'Pension',
+};
+
+// Fallback labels for legacy stored data migrated from old type names
+export const LEGACY_TRANSACTION_LABELS: Record<string, string> = {
+  ...TRANSACTION_LABELS,
   investment_bought: 'Investment Bought',
   investment_sold: 'Investment Sold',
   pension_contribution: 'Pension Contribution',
@@ -118,7 +121,6 @@ export const ALL_CATEGORIES: AccountCategory[] = [
   'pension',
   'real_estate',
   'liabilities',
-  'brokerage',
   'stocks',
   'others',
 ];

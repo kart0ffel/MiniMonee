@@ -10,6 +10,7 @@ interface AccountFormState {
   name: string;
   category: AccountCategory;
   currency: string;
+  openedAt: string;
   notes: string;
 }
 
@@ -18,6 +19,7 @@ const emptyForm = (baseCurrency: string): AccountFormState => ({
   name: '',
   category: 'cash',
   currency: baseCurrency,
+  openedAt: new Date().toISOString().slice(0, 10),
   notes: '',
 });
 
@@ -43,6 +45,7 @@ export default function Setup() {
       name: account.name,
       category: account.category,
       currency: account.currency,
+      openedAt: account.createdAt.slice(0, 10),
       notes: account.notes ?? '',
     });
   }
@@ -56,7 +59,7 @@ export default function Setup() {
       category: form.category,
       currency: form.currency,
       isActive: existing?.isActive ?? true,
-      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      createdAt: form.openedAt ? new Date(form.openedAt).toISOString() : (existing?.createdAt ?? new Date().toISOString()),
       closedAt: existing?.closedAt ?? null,
       notes: form.notes || undefined,
     };
@@ -143,6 +146,15 @@ export default function Setup() {
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date Opened</label>
+              <input
+                type="date"
+                value={form.openedAt}
+                onChange={(e) => setForm({ ...form, openedAt: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>

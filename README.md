@@ -43,8 +43,9 @@ Open [http://localhost:5173](http://localhost:5173).
 1. **Choose a base currency** — all charts and totals display values in this currency. Individual accounts can still be in any supported currency.
 2. **Add accounts** — go to *Accounts* and create your accounts. Each account has:
    - A name (e.g. "Main Checking", "Vanguard ISA")
-   - A category: `Cash`, `Pension`, `Real Estate`, `Liabilities`, `Brokerage`, `Stocks`, or `Others`
+   - A category: `Cash`, `Pension`, `Real Estate`, `Liabilities`, `Stocks`, or `Others`
    - A currency
+   - A date opened (defaults to today)
 3. **Add your first period** — go to *Add Period* and enter the current balance for each account. This is your baseline snapshot.
 
 From then on, return periodically to add new snapshots. The app will calculate your expenses, investment performance, and cash flow automatically.
@@ -59,8 +60,7 @@ From then on, return periodically to add new snapshots. The app will calculate y
 | Pension | Pension funds, retirement accounts (401k, SIPP, etc.) |
 | Real Estate | Property values |
 | Liabilities | Mortgages, loans, credit card balances (enter as positive numbers — they reduce net worth) |
-| Brokerage | Investment/trading accounts |
-| Stocks | Individual stock holdings |
+| Stocks | Investment/trading accounts and individual stock holdings |
 | Others | Anything else |
 
 Accounts can be **closed** at any time — they disappear from future periods but historical data is preserved.
@@ -104,7 +104,7 @@ A negative result means you spent less than you received — a surplus.
 ### Performance
 Two grouped bar series per period:
 
-**Unrealized P&L** (Stocks + Brokerage):
+**Unrealized P&L** (Stocks):
 ```
 Unrealized P&L = EndStocksValue − StartStocksValue − NetInvested
 ```

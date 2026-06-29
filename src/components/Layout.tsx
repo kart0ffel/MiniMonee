@@ -32,6 +32,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const netWorth = latestPeriod?.metrics.totalNetWorth ?? 0;
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
+  const userName = data?.meta.userName;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -126,7 +127,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-700">
+        <div className="px-6 py-4 border-t border-gray-700 space-y-0.5">
+          {userName && (
+            <p className="text-sm font-medium text-gray-300">Hi, {userName} 👋</p>
+          )}
           <p className="text-xs text-gray-500">
             Base: <span className="text-gray-300 font-medium">{baseCurrency}</span>
           </p>

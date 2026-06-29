@@ -18,12 +18,13 @@ interface TxDraft {
   amount: string;
   currency: string;
   description: string;
+  direction: string; // 'in' | 'out' — applies to investment and pension_activity
 }
 
 const TX_TYPES: TransactionType[] = [
   'income_salary', 'income_dividend', 'tax_paid',
-  'investment_bought', 'investment_sold',
-  'pension_contribution', 'pension_withdrawal',
+  'investment',
+  'pension_activity',
 ];
 
 export default function BalanceInput() {
@@ -56,14 +57,26 @@ export default function BalanceInput() {
     setBalances(existingBalances);
     const existingTxs: TxDraft[] = data.transactions
       .filter((t) => t.periodId === editPeriodId)
-      .map((t) => ({
-        id: t.id,
-        date: t.date,
-        type: t.type,
-        amount: String(t.amount),
-        currency: t.currency,
-        description: t.description,
-      }));
+      .map((t) => {
+        const raw = t.type as string;
+        let type: TransactionType = t.type;
+        let direction = 'in';
+        if (raw === 'investment_bought') { type = 'investment'; direction = 'in'; }
+        else if (raw === 'investment_sold') { type = 'investment'; direction = 'out'; }
+        else if (raw === 'pension_contribution') { type = 'pension_activity'; direction = 'in'; }
+        else if (raw === 'pension_withdrawal') { type = 'pension_activity'; direction = 'out'; }
+        else if (raw === 'investment') { direction = t.amount < 0 ? 'out' : 'in'; }
+        else if (raw === 'pension_activity') { direction = t.amount < 0 ? 'out' : 'in'; }
+        return {
+          id: t.id,
+          date: t.date,
+          type,
+          amount: String(Math.abs(t.amount)),
+          currency: t.currency,
+          description: t.description,
+          direction,
+        };
+      });
     setTxDrafts(existingTxs);
   }, [editPeriodId, data]);
 
@@ -85,7 +98,7 @@ export default function BalanceInput() {
   function addTx() {
     setTxDrafts((prev) => [
       ...prev,
-      { id: uuidv4(), date: periodDate, type: 'income_salary', amount: '', currency: baseCurrency, description: '' },
+      { id: uuidv4(), date: periodDate, type: 'income_salary', amount: '', currency: baseCurrency, description: '', direction: 'in' },
     ]);
   }
 
@@ -125,7 +138,9 @@ export default function BalanceInput() {
       const transactions: Transaction[] = [];
       for (const tx of txDrafts) {
         if (!tx.amount || parseFloat(tx.amount) === 0) continue;
-        const amount = Math.abs(parseFloat(tx.amount));
+        const absAmount = Math.abs(parseFloat(tx.amount));
+        const isSigned = tx.type === 'investment' || tx.type === 'pension_activity';
+        const amount = isSigned && tx.direction === 'out' ? -absAmount : absAmount;
         let rate = 1;
         if (tx.currency !== baseCurrency) {
           rate = await fetchRate(tx.date, tx.currency, baseCurrency);
@@ -302,7 +317,9 @@ export default function BalanceInput() {
                       <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
                       <select
                         value={tx.type}
-                        onChange={(e) => updateTx(tx.id, 'type', e.target.value)}
+                        onChange={(e) => setTxDrafts((prev) => prev.map((t) =>
+                          t.id === tx.id ? { ...t, type: e.target.value as TransactionType, direction: 'in' } : t
+                        ))}
                         className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500"
                       >
                         {TX_TYPES.map((t) => (
@@ -310,6 +327,29 @@ export default function BalanceInput() {
                         ))}
                       </select>
                     </div>
+                    {(tx.type === 'investment' || tx.type === 'pension_activity') && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          {tx.type === 'investment' ? 'Bought / Sold' : 'Contribution / Withdrawal'}
+                        </label>
+                        <div className="flex rounded border border-gray-300 overflow-hidden text-xs">
+                          <button
+                            type="button"
+                            onClick={() => updateTx(tx.id, 'direction', 'in')}
+                            className={`flex-1 px-2 py-1.5 font-medium transition-colors ${tx.direction === 'in' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          >
+                            {tx.type === 'investment' ? 'Bought' : 'Contribution'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateTx(tx.id, 'direction', 'out')}
+                            className={`flex-1 px-2 py-1.5 font-medium transition-colors border-l border-gray-300 ${tx.direction === 'out' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          >
+                            {tx.type === 'investment' ? 'Sold' : 'Withdrawal'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
                       <input

@@ -78,7 +78,7 @@ export default function Performance() {
 
       {/* Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Last Period — Invest." value={latestUnrealized} currency={baseCurrency} sub="Stocks + Brokerage" />
+        <StatCard label="Last Period — Invest." value={latestUnrealized} currency={baseCurrency} sub="Stocks" />
         <StatCard label="Last Period — Pension" value={latestPension} currency={baseCurrency} sub="Pension growth" />
         <StatCard label="Cumulative Invest." value={totalUnrealized} currency={baseCurrency} />
         <StatCard label="Cumulative Pension" value={totalPension} currency={baseCurrency} />

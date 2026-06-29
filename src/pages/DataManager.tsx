@@ -3,7 +3,7 @@ import { Download, Upload, Trash2, RefreshCw, AlertCircle, Edit2, Check, X } fro
 import { useData } from '../contexts/DataContext';
 import { exportToJson, importFromJson } from '../utils/storage';
 import { formatCurrency } from '../utils/currency';
-import { CATEGORY_LABELS, TRANSACTION_LABELS } from '../types';
+import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
 
 type Tab = 'periods' | 'transactions' | 'accounts' | 'json';
 
@@ -238,7 +238,7 @@ export default function DataManager() {
                         {new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="px-5 py-3 text-gray-700">
-                        {TRANSACTION_LABELS[t.type]}
+                        {LEGACY_TRANSACTION_LABELS[t.type] ?? t.type}
                       </td>
                       <td className="px-5 py-3 text-right font-medium text-gray-900">
                         {formatCurrency(t.amount, t.currency)}

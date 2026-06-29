@@ -10,11 +10,12 @@ export default function Welcome() {
   const { setData } = useData();
   const navigate = useNavigate();
   const [currency, setCurrency] = useState('EUR');
+  const [userName, setUserName] = useState('');
   const [importError, setImportError] = useState('');
   const [showStart, setShowStart] = useState(false);
 
   function handleStart() {
-    const data = createEmptyData(currency);
+    const data = createEmptyData(currency, userName.trim() || undefined);
     setData(data);
     navigate('/accounts');
   }
@@ -89,10 +90,21 @@ export default function Welcome() {
             </>
           ) : (
             <>
-              <h2 className="text-lg font-semibold text-gray-900">Choose your base currency</h2>
-              <p className="text-sm text-gray-500">
-                All values will be shown in this currency. Individual accounts can use different currencies.
-              </p>
+              <h2 className="text-lg font-semibold text-gray-900">Let's get you set up</h2>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your name (optional)</label>
+                <input
+                  type="text"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  placeholder="e.g. Anna"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Base currency</label>
+                <p className="text-xs text-gray-400 mb-1">All values shown in this currency. Accounts can use others.</p>
+              </div>
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}

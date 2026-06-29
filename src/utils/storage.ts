@@ -3,12 +3,13 @@ import { AppData, AppMeta } from '../types';
 const STORAGE_KEY = 'minimonee_data';
 const CURRENT_VERSION = '1.0';
 
-export function createEmptyData(baseCurrency: string): AppData {
+export function createEmptyData(baseCurrency: string, userName?: string): AppData {
   const now = new Date().toISOString();
   return {
     meta: {
       version: CURRENT_VERSION,
       baseCurrency,
+      ...(userName ? { userName } : {}),
       createdAt: now,
       lastUpdated: now,
     },
