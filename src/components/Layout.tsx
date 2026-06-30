@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   TrendingUp, BarChart2, Activity, GitCommit,
-  PlusCircle, Settings, Database, Menu, X, DollarSign, Receipt,
+  PlusCircle, Settings, Database, Menu, X, Receipt,
 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
@@ -55,9 +55,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-700">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
-            <DollarSign className="w-5 h-5 text-white" />
-          </div>
+          <img src="/monkee.png" alt="MiniMonee" className="w-8 h-8 rounded-lg object-cover" />
           <span className="text-lg font-bold tracking-tight">MiniMonee</span>
           <button
             className="ml-auto lg:hidden text-gray-400 hover:text-white"

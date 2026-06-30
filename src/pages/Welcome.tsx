@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DollarSign, Upload, ArrowRight } from 'lucide-react';
+import { Upload, ArrowRight } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { createEmptyData } from '../utils/storage';
 import { importFromJson } from '../utils/storage';
@@ -42,9 +42,11 @@ export default function Welcome() {
       <div className="max-w-md w-full">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-brand-500 rounded-2xl mb-4 shadow-lg">
-            <DollarSign className="w-9 h-9 text-white" />
-          </div>
+          <img
+            src="/monkee.png"
+            alt="MiniMonee"
+            className="w-24 h-24 rounded-2xl object-cover mx-auto mb-4 shadow-lg"
+          />
           <h1 className="text-4xl font-bold text-white mb-2">MiniMonee</h1>
           <p className="text-gray-400 text-lg">Your personal finance tracker</p>
         </div>
