@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
-import { buildWaterfallSteps } from '../utils/calculations';
+import { buildRangeWaterfallSteps } from '../utils/calculations';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function CustomTooltip({ active, payload, label, baseCurrency }: any) {
@@ -24,7 +24,6 @@ function CustomTooltip({ active, payload, label, baseCurrency }: any) {
   );
 }
 
-// Recharts waterfall: each bar = [base (transparent), value (colored)]
 function WaterfallBarShape(props: {
   x?: number; y?: number; width?: number; height?: number;
   payload?: { isTotal: boolean; isNegative: boolean };
@@ -36,9 +35,14 @@ function WaterfallBarShape(props: {
   return <rect x={x} y={y} width={width} height={Math.abs(height)} fill={fill ?? color} rx={3} />;
 }
 
+function periodLabel(date: string) {
+  return new Date(date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export default function Waterfall() {
   const { data } = useData();
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
+  const [fromPeriodId, setFromPeriodId] = useState<string>('');
+  const [toPeriodId, setToPeriodId] = useState<string>('');
 
   if (!data) return null;
 
@@ -58,16 +62,25 @@ export default function Waterfall() {
     );
   }
 
-  // Select latest period by default
-  const activePeriodId = selectedPeriodId || sorted[sorted.length - 1].id;
-  const period = sorted.find((p) => p.id === activePeriodId) ?? sorted[sorted.length - 1];
-  const periodIdx = sorted.findIndex((p) => p.id === period.id);
-  const prevPeriod = periodIdx > 0 ? sorted[periodIdx - 1] : null;
+  // Defaults: from = first period, to = last period
+  const activeFromId = fromPeriodId || sorted[0].id;
+  const activeToId = toPeriodId || sorted[sorted.length - 1].id;
 
-  const steps = buildWaterfallSteps(data, period, prevPeriod)
+  const fromPeriod = sorted.find((p) => p.id === activeFromId) ?? sorted[0];
+  const toPeriod = sorted.find((p) => p.id === activeToId) ?? sorted[sorted.length - 1];
+
+  // If from > to, swap silently
+  const fromIdx = sorted.findIndex((p) => p.id === fromPeriod.id);
+  const toIdx = sorted.findIndex((p) => p.id === toPeriod.id);
+  const [effectiveFrom, effectiveTo] = fromIdx <= toIdx
+    ? [fromPeriod, toPeriod]
+    : [toPeriod, fromPeriod];
+  const effectiveFromIdx = sorted.findIndex((p) => p.id === effectiveFrom.id);
+  const prevFromPeriod = effectiveFromIdx > 0 ? sorted[effectiveFromIdx - 1] : null;
+
+  const steps = buildRangeWaterfallSteps(data, effectiveFrom, effectiveTo, prevFromPeriod)
     .filter((s) => s.isTotal || s.value !== 0);
 
-  // Build Recharts data: stacked bars [transparent base, visible value]
   const chartData = steps.map((s) => ({
     name: s.name,
     base: s.isTotal ? 0 : s.base,
@@ -77,37 +90,60 @@ export default function Waterfall() {
   }));
 
   const allValues = steps.map((s) => s.base + s.value);
-  const minVal = Math.min(...steps.map((s) => (s.isNegative ? s.base : s.base)), 0);
+  const minVal = Math.min(...steps.map((s) => s.base), 0);
   const maxVal = Math.max(...allValues, 0);
   const padding = (maxVal - minVal) * 0.15;
 
+  const isSinglePeriod = effectiveFrom.id === effectiveTo.id;
+  const rangeLabel = isSinglePeriod
+    ? periodLabel(effectiveTo.date)
+    : `${periodLabel(effectiveFrom.date)} → ${periodLabel(effectiveTo.date)}`;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cash Flow Waterfall</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            How cash moved during the selected period
-          </p>
+          <p className="text-gray-500 text-sm mt-1">{rangeLabel}</p>
         </div>
-        <select
-          value={activePeriodId}
-          onChange={(e) => setSelectedPeriodId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          {[...sorted].reverse().map((p) => (
-            <option key={p.id} value={p.id}>
-              {new Date(p.date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-              {p.note ? ` — ${p.note}` : ''}
-            </option>
-          ))}
-        </select>
+
+        {/* Range selectors */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">From</span>
+            <select
+              value={activeFromId}
+              onChange={(e) => setFromPeriodId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {sorted.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {periodLabel(p.date)}{p.note ? ` — ${p.note}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <span className="text-gray-400 mt-4">→</span>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">To</span>
+            <select
+              value={activeToId}
+              onChange={(e) => setToPeriodId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              {sorted.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {periodLabel(p.date)}{p.note ? ` — ${p.note}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
-      {!prevPeriod && (
+      {!prevFromPeriod && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm">
-          This is the first period — no previous period to compare cash flow against.
-          The waterfall shows current period values only.
+          No previous period before the start — Start Cash shows as 0.
         </div>
       )}
 
@@ -127,9 +163,7 @@ export default function Waterfall() {
             />
             <Tooltip content={<CustomTooltip baseCurrency={baseCurrency} />} />
             <ReferenceLine y={0} stroke="#374151" strokeWidth={1.5} />
-            {/* Transparent base bar */}
             <Bar dataKey="base" stackId="a" fill="transparent" legendType="none" />
-            {/* Colored value bar */}
             <Bar dataKey="value" stackId="a" radius={[3, 3, 0, 0]} shape={<WaterfallBarShape />}>
               {chartData.map((entry, i) => (
                 <Cell
@@ -142,7 +176,6 @@ export default function Waterfall() {
           </BarChart>
         </ResponsiveContainer>
 
-        {/* Legend */}
         <div className="flex items-center gap-4 mt-2 justify-center text-xs text-gray-500">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-sm bg-green-500 inline-block" />

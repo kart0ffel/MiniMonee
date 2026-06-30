@@ -151,6 +151,91 @@ export interface WaterfallStep {
   isNegative: boolean;
 }
 
+export function buildRangeWaterfallSteps(
+  data: AppData,
+  fromPeriod: Period,
+  toPeriod: Period,
+  prevFromPeriod: Period | null,
+): WaterfallStep[] {
+  const sortedPeriods = [...data.periods].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+
+  const fromIdx = sortedPeriods.findIndex((p) => p.id === fromPeriod.id);
+  const toIdx = sortedPeriods.findIndex((p) => p.id === toPeriod.id);
+  const periodsInRange = sortedPeriods.slice(fromIdx, toIdx + 1);
+
+  const prevEntries = prevFromPeriod
+    ? data.balanceEntries.filter((e) => e.periodId === prevFromPeriod.id)
+    : [];
+  const toEntries = data.balanceEntries.filter((e) => e.periodId === toPeriod.id);
+
+  const cashIds = new Set(
+    data.accounts.filter((a) => a.category === 'cash').map((a) => a.id),
+  );
+
+  const startCash = sumEntries(prevEntries, cashIds);
+  const endCash = sumEntries(toEntries, cashIds);
+
+  let income = 0, investBought = 0, investSold = 0;
+  let taxesPaid = 0, pensionContrib = 0, pensionWithdraw = 0;
+
+  for (let i = 0; i < periodsInRange.length; i++) {
+    const period = periodsInRange[i];
+    const prevForWindow = i === 0 ? prevFromPeriod : periodsInRange[i - 1];
+    const txs = data.transactions.filter((t) => {
+      if (t.date > period.date) return false;
+      if (prevForWindow && t.date <= prevForWindow.date) return false;
+      return true;
+    });
+    income += sumTx(txs, ['income_salary', 'income_dividend']);
+    const inv = getInvestFlows(txs);
+    investBought += inv.bought;
+    investSold += inv.sold;
+    taxesPaid += sumTx(txs, ['tax_paid']);
+    const pen = getPensionFlows(txs);
+    pensionContrib += pen.contrib;
+    pensionWithdraw += pen.withdraw;
+  }
+
+  const expenses =
+    startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
+
+  const steps: Array<{ name: string; delta: number }> = [
+    { name: 'Start Cash', delta: startCash },
+    { name: 'Income', delta: income },
+    { name: 'Invest. Bought', delta: -investBought },
+    { name: 'Invest. Sold', delta: investSold },
+    { name: 'Taxes Paid', delta: -taxesPaid },
+    { name: 'Pension Out', delta: -pensionContrib },
+    { name: 'Pension In', delta: pensionWithdraw },
+    { name: 'Living Expenses', delta: -expenses },
+  ];
+
+  const result: WaterfallStep[] = [];
+  let running = 0;
+
+  for (const step of steps) {
+    if (step.name === 'Start Cash') {
+      result.push({ name: step.name, value: step.delta, base: 0, isTotal: true, isNegative: false });
+      running = step.delta;
+    } else {
+      const base = step.delta >= 0 ? running : running + step.delta;
+      result.push({
+        name: step.name,
+        value: Math.abs(step.delta),
+        base,
+        isTotal: false,
+        isNegative: step.delta < 0,
+      });
+      running += step.delta;
+    }
+  }
+
+  result.push({ name: 'End Cash', value: endCash, base: 0, isTotal: true, isNegative: false });
+  return result;
+}
+
 export function buildWaterfallSteps(
   data: AppData,
   period: Period,
