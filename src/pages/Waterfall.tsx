@@ -62,8 +62,8 @@ export default function Waterfall() {
     );
   }
 
-  // Defaults: from = first period, to = last period
-  const activeFromId = fromPeriodId || sorted[0].id;
+  // Defaults: both from and to = last period (single period view)
+  const activeFromId = fromPeriodId || sorted[sorted.length - 1].id;
   const activeToId = toPeriodId || sorted[sorted.length - 1].id;
 
   const fromPeriod = sorted.find((p) => p.id === activeFromId) ?? sorted[0];
