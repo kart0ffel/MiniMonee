@@ -4,7 +4,8 @@
       "Bash(ls /pkg/env/global/bin/ | grep -E \"node|npm\")",
       "Bash(ls /opt/homebrew/bin/ | grep -E \"^node|^npm|^npx\")",
       "Bash(python3 -c ' *)",
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(node_modules/.bin/tsc --noEmit)"
     ]
   }
 }
