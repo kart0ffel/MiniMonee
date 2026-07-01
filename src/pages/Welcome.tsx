@@ -55,22 +55,12 @@ export default function Welcome() {
           <h1 className="text-4xl font-bold text-white">MiniMonee</h1>
           <div className="text-gray-300 text-sm leading-relaxed space-y-3 text-left bg-gray-800/50 rounded-xl px-5 py-4">
             <p>
-              MiniMonee is a very simple finance manager for busy people with multiple accounts.
-              It lets you manage various currencies, stocks and pension funds.
+              MiniMonee is the finance tracker for people who are too busy to track every coffee
+              but still want to know if they're getting richer.
             </p>
-            <p>
-              The simplicity relies in that no detail of all expenses is needed — just once a month:
-            </p>
-            <ul className="list-disc list-inside space-y-1 text-gray-400 pl-1">
-              <li>Add your accounts, pensions, and stock value at the end of the period.</li>
-              <li>Input your income (salary, dividends, or others), the taxes you paid, and the money you invested in that period.</li>
-            </ul>
-            <p>
-              MiniMonee will automatically calculate your net worth and break down your cash flow.
-            </p>
-            <p className="text-gray-400 border-t border-gray-700 pt-3">
-              All data stays in your computer in a JSON file that you can export at any time.
-              Your data never leaves your computer — ever. 100% private.
+            <p className="text-gray-400">
+              One snapshot a month across all your accounts, currencies, and investments —
+              and it tells you exactly where you stand.
             </p>
           </div>
         </div>
@@ -86,6 +76,7 @@ export default function Welcome() {
 
         {/* Action card */}
         <div className="bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+
           {!showStart ? (
             <>
               <button
@@ -156,6 +147,101 @@ export default function Welcome() {
               </button>
             </>
           )}
+        </div>
+
+        {/* Description */}
+        <div className="space-y-6 pb-12">
+
+          {/* Intended use */}
+          <div className="bg-gray-800/60 rounded-2xl px-6 py-5 space-y-3">
+            <h2 className="text-white font-semibold text-base">What is MiniMonee for?</h2>
+            <p className="text-gray-300 text-sm leading-relaxed">
+              MiniMonee is a <strong className="text-white">personal net worth tracker</strong> for people who hold assets
+              across multiple accounts, currencies, and investment types. It answers one question:{' '}
+              <em className="text-gray-200">how is my overall financial picture evolving over time?</em>
+            </p>
+            <p className="text-gray-400 text-sm leading-relaxed">
+              You log balances once a period (monthly or quarterly), record what moved money in or out,
+              and the tool calculates how your wealth changed, where your money went, and how your
+              investments performed — all converted into a single base currency.
+            </p>
+            <p className="text-gray-400 text-sm leading-relaxed">
+              It is suited for people who hold accounts in <strong className="text-gray-300">multiple currencies</strong>,
+              have assets spread across different types (cash, stocks, real estate, pension), and want
+              a <strong className="text-gray-300">long-term view</strong> of wealth rather than a day-to-day budget.
+            </p>
+          </div>
+
+          {/* Advantages */}
+          <div className="bg-gray-800/60 rounded-2xl px-6 py-5 space-y-4">
+            <h2 className="text-white font-semibold text-base">Advantages</h2>
+            <div className="space-y-3">
+              {[
+                {
+                  title: 'Multi-account tracking',
+                  body: 'Bank accounts, portfolios, pension funds, property, liabilities — all in one place, shown as a single net worth.',
+                },
+                {
+                  title: 'Multiple currencies, auto-converted',
+                  body: 'Each account keeps its native currency. Exchange rates are fetched automatically and historical rates are used for past periods, so comparisons stay accurate.',
+                },
+                {
+                  title: 'Investment & pension performance',
+                  body: 'Separates market appreciation from money you put in yourself. See how much your portfolio grew due to the market — not just because you contributed more.',
+                },
+                {
+                  title: 'Cash flow waterfall',
+                  body: 'See exactly where your cash went in any period: income, taxes, investments, pension — all reconciling to your end cash balance.',
+                },
+                {
+                  title: 'No lock-in, 100% private',
+                  body: 'Data lives locally in your browser and exports as a plain JSON file. No subscription, no account, no data ever leaves your machine.',
+                },
+              ].map(({ title, body }) => (
+                <div key={title} className="flex gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
+                  <div>
+                    <p className="text-gray-200 text-sm font-medium">{title}</p>
+                    <p className="text-gray-400 text-sm leading-relaxed">{body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Not intended for */}
+          <div className="bg-gray-800/60 rounded-2xl px-6 py-5 space-y-4">
+            <h2 className="text-white font-semibold text-base">What MiniMonee is <span className="text-red-400">not</span> for</h2>
+            <div className="space-y-3">
+              {[
+                {
+                  title: 'Detailed expense tracking',
+                  body: 'MiniMonee calculates total spending as a residual, but does not track individual purchases or spending categories. Use YNAB or a budgeting app for that.',
+                },
+                {
+                  title: 'Single-account or simple budgets',
+                  body: 'If you have one bank account in one currency and want a monthly budget, MiniMonee is more complexity than you need.',
+                },
+                {
+                  title: 'Real-time portfolio tracking',
+                  body: 'MiniMonee does not pull live stock prices or connect to brokerage APIs. You enter balances manually — it is a snapshot tool, not a live dashboard.',
+                },
+                {
+                  title: 'Tax reporting',
+                  body: 'It tracks taxes paid and investment activity, but does not produce tax documents or calculate capital gains per lot.',
+                },
+              ].map(({ title, body }) => (
+                <div key={title} className="flex gap-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1.5 shrink-0" />
+                  <div>
+                    <p className="text-gray-200 text-sm font-medium">{title}</p>
+                    <p className="text-gray-400 text-sm leading-relaxed">{body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
 
       </div>
