@@ -13,7 +13,7 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   NZD: 'NZ$', PLN: 'zł', SEK: 'kr', SGD: 'S$', USD: '$', ZAR: 'R',
 };
 
-function cacheKey(date: string, from: string, to: string): string {
+export function cacheKey(date: string, from: string, to: string): string {
   return `${date}|${from}|${to}`;
 }
 
@@ -28,7 +28,8 @@ export async function getExchangeRate(
   const key = cacheKey(date, from, to);
   if (cache[key] !== undefined) return { rate: cache[key], key };
 
-  // Try historical date first, fall back to latest
+  const errors: string[] = [];
+
   const urls = [
     `https://api.frankfurter.app/${date}?from=${from}&to=${to}`,
     `https://api.frankfurter.app/latest?from=${from}&to=${to}`,
@@ -37,16 +38,22 @@ export async function getExchangeRate(
   for (const url of urls) {
     try {
       const res = await fetch(url);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const rate = data.rates?.[to];
+      if (!res.ok) {
+        errors.push(`HTTP ${res.status} from Frankfurter API`);
+        continue;
+      }
+      const json = await res.json();
+      const rate = json.rates?.[to];
       if (rate !== undefined) return { rate, key };
-    } catch {
-      // try next
+      errors.push(`API responded but returned no rate for ${to} (unsupported pair?)`);
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : String(e));
     }
   }
 
-  throw new Error(`Could not fetch exchange rate ${from}→${to} for ${date}`);
+  throw new Error(
+    `Cannot fetch ${from}→${to} rate for ${date}. ${errors.join('; ')}`,
+  );
 }
 
 export function formatCurrency(value: number, currency: string, compact = false): string {
