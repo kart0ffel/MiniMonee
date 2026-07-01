@@ -39,27 +39,52 @@ export default function Welcome() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
+      <div className="max-w-lg w-full space-y-6">
+
+        {/* Hero image */}
+        <div className="text-center">
           <img
-            src="/monkee.png"
+            src={`${import.meta.env.BASE_URL}monkeymain.png`}
             alt="MiniMonee"
-            className="w-24 h-24 rounded-2xl object-cover mx-auto mb-4 shadow-lg"
+            className="w-full max-h-56 object-contain mx-auto rounded-2xl"
           />
-          <h1 className="text-4xl font-bold text-white mb-2">MiniMonee</h1>
-          <p className="text-gray-400 text-lg">Your personal finance tracker</p>
+        </div>
+
+        {/* Title + description */}
+        <div className="text-center space-y-3">
+          <h1 className="text-4xl font-bold text-white">MiniMonee</h1>
+          <div className="text-gray-300 text-sm leading-relaxed space-y-3 text-left bg-gray-800/50 rounded-xl px-5 py-4">
+            <p>
+              MiniMonee is a very simple finance manager for busy people with multiple accounts.
+              It lets you manage various currencies, stocks and pension funds.
+            </p>
+            <p>
+              The simplicity relies in that no detail of all expenses is needed — just once a month:
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-gray-400 pl-1">
+              <li>Add your accounts, pensions, and stock value at the end of the period.</li>
+              <li>Input your income (salary, dividends, or others), the taxes you paid, and the money you invested in that period.</li>
+            </ul>
+            <p>
+              MiniMonee will automatically calculate your net worth and break down your cash flow.
+            </p>
+            <p className="text-gray-400 border-t border-gray-700 pt-3">
+              All data stays in your computer in a JSON file that you can export at any time.
+              Your data never leaves your computer — ever. 100% private.
+            </p>
+          </div>
         </div>
 
         {/* Feature pills */}
-        <div className="flex flex-wrap gap-2 justify-center mb-8">
-          {['Multi-currency', 'No login', 'Privacy-first', 'Portable JSON'].map((f) => (
+        <div className="flex flex-wrap gap-2 justify-center">
+          {['Multi-currency', 'Stocks & Pension', 'No login', '100% Private', 'Portable JSON'].map((f) => (
             <span key={f} className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm">
               {f}
             </span>
           ))}
         </div>
 
+        {/* Action card */}
         <div className="bg-white rounded-2xl shadow-2xl p-6 space-y-4">
           {!showStart ? (
             <>
@@ -133,9 +158,6 @@ export default function Welcome() {
           )}
         </div>
 
-        <p className="text-center text-gray-600 text-xs mt-6">
-          All data stays in your browser. Export anytime as JSON.
-        </p>
       </div>
     </div>
   );

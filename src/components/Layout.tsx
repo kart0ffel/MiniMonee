@@ -55,7 +55,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-700">
-          <img src="/monkee.png" alt="MiniMonee" className="w-8 h-8 rounded-lg object-cover" />
+          <img src={`${import.meta.env.BASE_URL}monkee.png`} alt="MiniMonee" className="w-8 h-8 rounded-lg object-cover" />
           <span className="text-lg font-bold tracking-tight">MiniMonee</span>
           <button
             className="ml-auto lg:hidden text-gray-400 hover:text-white"
