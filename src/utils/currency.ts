@@ -30,10 +30,15 @@ export async function getExchangeRate(
 
   const errors: string[] = [];
 
-  // Use the nginx proxy (/api/rates/) to avoid CORS issues on localhost
+  // On localhost (Docker) use the nginx proxy to avoid CORS.
+  // On any real domain (GitHub Pages, etc.) call Frankfurter directly — CORS is allowed.
+  const base = window.location.hostname === 'localhost'
+    ? '/api/rates'
+    : 'https://api.frankfurter.app';
+
   const urls = [
-    `/api/rates/${date}?from=${from}&to=${to}`,
-    `/api/rates/latest?from=${from}&to=${to}`,
+    `${base}/${date}?from=${from}&to=${to}`,
+    `${base}/latest?from=${from}&to=${to}`,
   ];
 
   for (const url of urls) {

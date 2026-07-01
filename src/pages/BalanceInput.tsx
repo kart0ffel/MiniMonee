@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { Check, ChevronRight, ChevronLeft, AlertCircle, Loader, Plus } from 'lucide-react';
@@ -24,6 +24,8 @@ interface TxDrafts {
 // all date / amount / currency / description inputs vertically aligned.
 const COL1 = 'w-48 shrink-0';
 
+interface PendingRate { key: string; from: string; to: string; date: string; label: string }
+
 export default function BalanceInput() {
   const { data, addPeriod, updatePeriod, fetchRate, upsertTransaction } = useData();
   const navigate = useNavigate();
@@ -36,8 +38,10 @@ export default function BalanceInput() {
   const [balances, setBalances] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [submitWarnings, setSubmitWarnings] = useState<string[]>([]);
-  const [saved, setSaved] = useState(false);
+
+  const [pendingRates, setPendingRates] = useState<PendingRate[]>([]);
+  const [manualRates, setManualRates] = useState<Record<string, string>>({});
+  const ratesPanelRef = useRef<HTMLDivElement>(null);
 
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
 
@@ -91,6 +95,11 @@ export default function BalanceInput() {
       }));
     }
   }
+
+  useEffect(() => {
+    if (pendingRates.length > 0)
+      ratesPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [pendingRates.length]);
 
   useEffect(() => {
     if (!editPeriodId || !data) return;
@@ -257,22 +266,68 @@ export default function BalanceInput() {
   async function handleSubmit() {
     setLoading(true);
     setError('');
-    setSubmitWarnings([]);
-    const warnings: string[] = [];
+
+    // Per-call rate cache so the same pair+date is only fetched once.
+    const rateCache = new Map<string, number>();
+    const failed: PendingRate[] = [];
+
+    async function resolveRate(from: string, to: string, date: string, label: string): Promise<number> {
+      if (from === to) return 1;
+      const key = `${from}|${to}|${date}`;
+      if (rateCache.has(key)) return rateCache.get(key)!;
+      // Use manual rate if the user already provided one
+      const manual = parseFloat(manualRates[key] ?? '');
+      if (!isNaN(manual) && manual > 0) { rateCache.set(key, manual); return manual; }
+      // Try fetching
+      try {
+        const r = await fetchRate(date, from, to);
+        rateCache.set(key, r);
+        return r;
+      } catch {
+        if (!failed.some((f) => f.key === key))
+          failed.push({ key, from, to, date, label });
+        return 0;
+      }
+    }
+
     try {
+      // ── Phase 1: pre-resolve every rate we will need ──────────────────────
+      for (const acc of activeAccounts) {
+        if (acc.currency !== baseCurrency)
+          await resolveRate(acc.currency, baseCurrency, periodDate, `Balance: ${acc.name}`);
+      }
+      const txMeta: { drafts: TxDraft[]; label: string }[] = [
+        { drafts: txDrafts.salary,     label: 'Salary / Income' },
+        { drafts: txDrafts.dividend,   label: 'Dividends' },
+        { drafts: txDrafts.tax,        label: 'Taxes Paid' },
+        { drafts: txDrafts.investment, label: 'Investment' },
+        { drafts: txDrafts.pension,    label: 'Pension' },
+      ];
+      for (const { drafts, label } of txMeta) {
+        for (const d of drafts) {
+          const amt = parseFloat(d.amount);
+          if (d.currency !== baseCurrency && d.amount && !isNaN(amt) && amt !== 0)
+            await resolveRate(d.currency, baseCurrency, d.date || periodDate, label);
+        }
+      }
+
+      // ── Phase 2: if any rates are still missing, ask the user ─────────────
+      if (failed.length > 0) {
+        setPendingRates(failed);
+        setLoading(false);
+        return;
+      }
+
+      // ── Phase 3: all rates resolved — save ────────────────────────────────
       const periodId = editPeriodId ?? uuidv4();
 
-      // Balance entries
-      const entries: BalanceEntry[] = [];
-      for (const acc of activeAccounts) {
+      const entries: BalanceEntry[] = activeAccounts.map((acc) => {
         const rawVal = parseFloat(effectiveValue(acc.id) || '0') || 0;
-        let rate = 1;
-        if (acc.currency !== baseCurrency) {
-          try { rate = await fetchRate(periodDate, acc.currency, baseCurrency); }
-          catch { warnings.push(`${acc.name} (${acc.currency}→${baseCurrency})`); rate = 0; }
-        }
-        entries.push({ id: uuidv4(), periodId, accountId: acc.id, value: rawVal, valueInBase: rawVal * rate, exchangeRate: rate });
-      }
+        const rate = acc.currency === baseCurrency
+          ? 1
+          : (rateCache.get(`${acc.currency}|${baseCurrency}|${periodDate}`) ?? 0);
+        return { id: uuidv4(), periodId, accountId: acc.id, value: rawVal, valueInBase: rawVal * rate, exchangeRate: rate };
+      });
 
       const period: Period = {
         id: periodId, date: periodDate, note: periodNote,
@@ -280,21 +335,14 @@ export default function BalanceInput() {
       };
       if (editPeriodId) { updatePeriod(period, entries); } else { addPeriod(period, entries); }
 
-      // Helper to save one tx
-      async function saveTx(
-        type: Transaction['type'],
-        draft: TxDraft,
-        sign: 1 | -1 = 1,
-      ) {
+      function saveTx(type: Transaction['type'], draft: TxDraft, sign: 1 | -1 = 1) {
         const absAmt = parseFloat(draft.amount);
         if (!absAmt || isNaN(absAmt)) return;
-        const amount = absAmt * sign;
         const txDate = draft.date || periodDate;
-        let rate = 1;
-        if (draft.currency !== baseCurrency) {
-          try { rate = await fetchRate(txDate, draft.currency, baseCurrency); }
-          catch { warnings.push(`${type} (${draft.currency}→${baseCurrency})`); rate = 0; }
-        }
+        const rate = draft.currency === baseCurrency
+          ? 1
+          : (rateCache.get(`${draft.currency}|${baseCurrency}|${txDate}`) ?? 0);
+        const amount = absAmt * sign;
         upsertTransaction({
           id: uuidv4(), periodId: null, date: txDate, type, amount,
           currency: draft.currency, amountInBase: amount * rate,
@@ -302,14 +350,14 @@ export default function BalanceInput() {
         });
       }
 
-      for (const d of txDrafts.salary)    await saveTx('income_salary',   d,  1);
-      for (const d of txDrafts.tax)       await saveTx('tax_paid',        d,  1);
-      for (const d of txDrafts.dividend)  await saveTx('income_dividend', d,  1);
-      for (const d of txDrafts.investment) await saveTx('investment',     d, d.direction === 'in' ? 1 : -1);
-      for (const d of txDrafts.pension)   await saveTx('pension_activity', d, d.direction === 'in' ? 1 : -1);
+      for (const d of txDrafts.salary)     saveTx('income_salary',    d,  1);
+      for (const d of txDrafts.tax)        saveTx('tax_paid',         d,  1);
+      for (const d of txDrafts.dividend)   saveTx('income_dividend',  d,  1);
+      for (const d of txDrafts.investment) saveTx('investment',       d, d.direction === 'in' ? 1 : -1);
+      for (const d of txDrafts.pension)    saveTx('pension_activity', d, d.direction === 'in' ? 1 : -1);
 
-      if (warnings.length > 0) { setSubmitWarnings(warnings); setSaved(true); }
-      else { navigate('/overview'); }
+      setPendingRates([]);
+      navigate('/overview');
     } catch (e) {
       setError(String(e));
     } finally {
@@ -522,6 +570,48 @@ export default function BalanceInput() {
         {step === 'review' && (
           <div className="space-y-4">
             <h2 className="font-semibold text-gray-900">Confirm &amp; Save</h2>
+
+            {/* Manual exchange-rate inputs — shown at top when automatic fetch fails */}
+            {pendingRates.length > 0 && (
+              <div ref={ratesPanelRef} className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+                <div className="flex gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-amber-800 text-sm font-semibold">
+                      Could not fetch {pendingRates.length} exchange rate{pendingRates.length > 1 ? 's' : ''} automatically.
+                    </p>
+                    <p className="text-amber-700 text-xs mt-0.5">
+                      Enter the rates below, then click Save.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {pendingRates.map((r) => (
+                    <div key={r.key} className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-sm font-semibold text-gray-800">{r.from}</span>
+                        <span className="text-gray-400">→</span>
+                        <span className="text-sm font-semibold text-gray-800">{r.to}</span>
+                        <span className="text-xs text-gray-400 ml-1">
+                          {new Date(r.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-500 italic shrink-0">{r.label}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder={`1 ${r.from} = ? ${r.to}`}
+                        value={manualRates[r.key] ?? ''}
+                        onChange={(e) => setManualRates((prev) => ({ ...prev, [r.key]: e.target.value }))}
+                        className="w-48 border border-amber-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="bg-gray-50 rounded-lg p-4 space-y-1.5 text-sm">
               <div className="flex justify-between pb-2 border-b border-gray-200">
                 <span className="text-gray-500">Date</span>
@@ -567,22 +657,6 @@ export default function BalanceInput() {
               <p className="text-xs text-gray-400">No transactions entered — only balances will be saved.</p>
             )}
 
-            {submitWarnings.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
-                <div className="flex gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                  <p className="text-amber-800 text-sm font-medium">
-                    Saved — but {submitWarnings.length} exchange rate{submitWarnings.length > 1 ? 's' : ''} could not be fetched:
-                  </p>
-                </div>
-                <ul className="pl-6 space-y-0.5">
-                  {submitWarnings.map((w, i) => <li key={i} className="text-amber-700 text-xs">• {w}</li>)}
-                </ul>
-                <p className="text-amber-700 text-xs pl-6">
-                  Use <strong>Refetch Missing Rates</strong> in Data Manager to fix these later.
-                </p>
-              </div>
-            )}
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
                 <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
@@ -612,22 +686,22 @@ export default function BalanceInput() {
             Next
             <ChevronRight className="w-4 h-4" />
           </button>
-        ) : saved ? (
-          <button
-            onClick={() => navigate('/overview')}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Check className="w-4 h-4" />
-            Continue to Overview
-          </button>
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={loading}
+            disabled={
+              loading ||
+              pendingRates.some((r) => {
+                const v = parseFloat(manualRates[r.key] ?? '');
+                return isNaN(v) || v <= 0;
+              })
+            }
             className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
             {loading ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            {editPeriodId ? 'Save Changes' : 'Save Period'}
+            {pendingRates.length > 0
+              ? 'Save with manual rates'
+              : editPeriodId ? 'Save Changes' : 'Save Period'}
           </button>
         )}
       </div>
