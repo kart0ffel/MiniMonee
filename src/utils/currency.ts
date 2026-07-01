@@ -30,9 +30,10 @@ export async function getExchangeRate(
 
   const errors: string[] = [];
 
+  // Use the nginx proxy (/api/rates/) to avoid CORS issues on localhost
   const urls = [
-    `https://api.frankfurter.app/${date}?from=${from}&to=${to}`,
-    `https://api.frankfurter.app/latest?from=${from}&to=${to}`,
+    `/api/rates/${date}?from=${from}&to=${to}`,
+    `/api/rates/latest?from=${from}&to=${to}`,
   ];
 
   for (const url of urls) {
