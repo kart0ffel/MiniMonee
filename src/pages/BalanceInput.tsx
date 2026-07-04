@@ -1,30 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
-import { Check, ChevronRight, ChevronLeft, AlertCircle, Loader, Plus } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, AlertCircle, Loader } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
-import { Account, BalanceEntry, Period, Transaction, CATEGORY_LABELS } from '../types';
-import { formatCurrency, CURRENCIES } from '../utils/currency';
+import { Account, BalanceEntry, Period, Transaction, CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
+import { formatCurrency } from '../utils/currency';
+import TransactionInputSection, { TxDraft, TxDrafts, INCOME_OPTIONS, makeEmptyDrafts } from '../components/TransactionInputSection';
 
 type Step = 'date' | 'balances' | 'review_balances' | 'transactions' | 'review';
 const STEPS: Step[] = ['date', 'balances', 'review_balances', 'transactions', 'review'];
 const STEP_LABELS = ['Date', 'Balances', 'Review', 'Transactions', 'Confirm'];
 
-interface TxDraft { date: string; amount: string; currency: string; description: string; }
-interface TxDraftWithDir extends TxDraft { direction: 'in' | 'out'; }
-interface TxDrafts {
-  salary: TxDraft[];
-  dividend: TxDraft[];
-  tax: TxDraft[];
-  investment: TxDraftWithDir[];
-  pension: TxDraftWithDir[];
-}
-
-// First column width shared by label spans and direction-toggle wrappers — keeps
-// all date / amount / currency / description inputs vertically aligned.
-const COL1 = 'w-48 shrink-0';
-
 interface PendingRate { key: string; from: string; to: string; date: string; label: string }
+
+function existingTxLabel(tx: Transaction): string {
+  if (tx.type === 'investment')       return tx.amount >= 0 ? 'Investment · Bought' : 'Investment · Sold';
+  if (tx.type === 'pension_activity') return tx.amount >= 0 ? 'Pension · Contribution' : 'Pension · Withdrawal';
+  if (tx.type === 'tax_paid')         return tx.amount < 0 ? 'Tax Refund' : 'Taxes Paid';
+  return LEGACY_TRANSACTION_LABELS[tx.type] ?? tx.type;
+}
 
 export default function BalanceInput() {
   const { data, addPeriod, updatePeriod, fetchRate, upsertTransaction } = useData();
@@ -45,56 +39,7 @@ export default function BalanceInput() {
 
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
 
-  function emptyDraft(): TxDraft {
-    return { date: '', amount: '', currency: baseCurrency, description: '' };
-  }
-  function emptyDrafts(): TxDrafts {
-    const d = emptyDraft();
-    return {
-      salary: [{ ...d }],
-      dividend: [{ ...d }],
-      tax: [{ ...d }],
-      investment: [{ ...d, direction: 'in' as const }],
-      pension: [{ ...d, direction: 'in' as const }],
-    };
-  }
-  const [txDrafts, setTxDrafts] = useState<TxDrafts>(emptyDrafts);
-
-  function updateTx(
-    field: keyof TxDrafts,
-    idx: number,
-    key: 'date' | 'amount' | 'currency' | 'description',
-    value: string,
-  ) {
-    setTxDrafts((prev) => ({
-      ...prev,
-      [field]: prev[field].map((d, i) => (i === idx ? { ...d, [key]: value } : d)),
-    }));
-  }
-
-  function toggleDir(field: 'investment' | 'pension', idx: number) {
-    setTxDrafts((prev) => ({
-      ...prev,
-      [field]: (prev[field] as TxDraftWithDir[]).map((d, i) =>
-        i === idx ? { ...d, direction: d.direction === 'in' ? 'out' : 'in' } : d,
-      ),
-    }));
-  }
-
-  function addRow(field: keyof TxDrafts) {
-    const d = emptyDraft();
-    if (field === 'investment' || field === 'pension') {
-      setTxDrafts((prev) => ({
-        ...prev,
-        [field]: [...(prev[field] as TxDraftWithDir[]), { ...d, direction: 'in' as const }],
-      }));
-    } else {
-      setTxDrafts((prev) => ({
-        ...prev,
-        [field]: [...(prev[field] as TxDraft[]), d],
-      }));
-    }
-  }
+  const [txDrafts, setTxDrafts] = useState<TxDrafts>(() => makeEmptyDrafts(baseCurrency));
 
   useEffect(() => {
     if (pendingRates.length > 0)
@@ -155,102 +100,29 @@ export default function BalanceInput() {
     (s, a) => s + (parseFloat(effectiveValue(a.id) || '0') || 0), 0,
   );
 
-  // Shared input class helpers
-  const dateInputCls = 'w-36 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500 shrink-0';
-  const amountInputCls = 'w-36 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-1 focus:ring-brand-500 shrink-0';
-  const currencySelectCls = 'w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none shrink-0';
-  const descInputCls = 'flex-1 min-w-0 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-1 focus:ring-brand-500';
+  // Existing transactions in the range [prevPeriod.date < date <= periodDate]
+  const existingTxsInRange = [...data.transactions]
+    .filter((t) => {
+      if (t.date > periodDate) return false;
+      if (prevPeriod && t.date <= prevPeriod.date) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  // Plain render functions (not React components) to avoid focus loss on keystroke
-
-  function renderTxRow(
-    field: 'salary' | 'dividend' | 'tax',
-    label: string,
-    draft: TxDraft,
-    idx: number,
-  ) {
-    return (
-      <div key={idx} className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 last:border-b-0">
-        <span className={`${COL1} text-sm font-medium text-gray-700`}>
-          {idx === 0 ? label : ''}
-        </span>
-        <input type="date" value={draft.date || periodDate}
-          onChange={(e) => updateTx(field, idx, 'date', e.target.value)} className={dateInputCls} />
-        <input type="number" min="0" step="any" value={draft.amount} placeholder="0"
-          onChange={(e) => updateTx(field, idx, 'amount', e.target.value)} className={amountInputCls} />
-        <select value={draft.currency}
-          onChange={(e) => updateTx(field, idx, 'currency', e.target.value)} className={currencySelectCls}>
-          {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <input type="text" value={draft.description} placeholder="Description (optional)"
-          onChange={(e) => updateTx(field, idx, 'description', e.target.value)} className={descInputCls} />
-      </div>
-    );
-  }
-
-  function renderDirTxRow(
-    field: 'investment' | 'pension',
-    inLabel: string,
-    outLabel: string,
-    draft: TxDraftWithDir,
-    idx: number,
-  ) {
-    const dir = draft.direction;
-    return (
-      <div key={idx} className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 last:border-b-0">
-        <div className={COL1}>
-          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden text-xs">
-            <button type="button" onClick={() => { if (dir !== 'in') toggleDir(field, idx); }}
-              className={`px-2 py-1.5 font-medium transition-colors ${dir === 'in' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {inLabel}
-            </button>
-            <button type="button" onClick={() => { if (dir !== 'out') toggleDir(field, idx); }}
-              className={`px-2 py-1.5 font-medium transition-colors border-l border-gray-200 ${dir === 'out' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-              {outLabel}
-            </button>
-          </div>
-        </div>
-        <input type="date" value={draft.date || periodDate}
-          onChange={(e) => updateTx(field, idx, 'date', e.target.value)} className={dateInputCls} />
-        <input type="number" min="0" step="any" value={draft.amount} placeholder="0"
-          onChange={(e) => updateTx(field, idx, 'amount', e.target.value)} className={amountInputCls} />
-        <select value={draft.currency}
-          onChange={(e) => updateTx(field, idx, 'currency', e.target.value)} className={currencySelectCls}>
-          {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <input type="text" value={draft.description} placeholder="Description (optional)"
-          onChange={(e) => updateTx(field, idx, 'description', e.target.value)} className={descInputCls} />
-      </div>
-    );
-  }
-
-  function addRowButton(field: keyof TxDrafts) {
-    return (
-      <button
-        type="button"
-        onClick={() => addRow(field)}
-        className="flex items-center gap-1 px-4 py-2 text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors"
-      >
-        <Plus className="w-3.5 h-3.5" />
-        Add another
-      </button>
-    );
-  }
-
-  // Build review list of active tx items
+  // Build review list of pending new tx items
   type ReviewTxItem = { label: string; amount: string; currency: string; date: string; description: string };
   const activeTxItems: ReviewTxItem[] = [];
-  const simpleMeta: { field: 'salary' | 'dividend' | 'tax'; label: string }[] = [
-    { field: 'salary', label: 'Salary / Income' },
-    { field: 'dividend', label: 'Dividends' },
-    { field: 'tax', label: 'Taxes Paid' },
-  ];
-  for (const { field, label } of simpleMeta) {
-    for (const d of txDrafts[field]) {
-      const amt = parseFloat(d.amount);
-      if (d.amount && !isNaN(amt) && amt !== 0)
-        activeTxItems.push({ label, amount: d.amount, currency: d.currency, date: d.date || periodDate, description: d.description });
+  for (const d of txDrafts.income) {
+    const amt = parseFloat(d.amount);
+    if (d.amount && !isNaN(amt) && amt !== 0) {
+      const label = INCOME_OPTIONS.find((o) => o.value === d.subtype)?.label ?? d.subtype;
+      activeTxItems.push({ label, amount: d.amount, currency: d.currency, date: d.date || periodDate, description: d.description });
     }
+  }
+  for (const d of txDrafts.tax) {
+    const amt = parseFloat(d.amount);
+    if (d.amount && !isNaN(amt) && amt !== 0)
+      activeTxItems.push({ label: d.direction === 'in' ? 'Taxes Paid' : 'Tax Refund', amount: d.amount, currency: d.currency, date: d.date || periodDate, description: d.description });
   }
   for (const d of txDrafts.investment) {
     const amt = parseFloat(d.amount);
@@ -267,7 +139,6 @@ export default function BalanceInput() {
     setLoading(true);
     setError('');
 
-    // Per-call rate cache so the same pair+date is only fetched once.
     const rateCache = new Map<string, number>();
     const failed: PendingRate[] = [];
 
@@ -275,10 +146,8 @@ export default function BalanceInput() {
       if (from === to) return 1;
       const key = `${from}|${to}|${date}`;
       if (rateCache.has(key)) return rateCache.get(key)!;
-      // Use manual rate if the user already provided one
       const manual = parseFloat(manualRates[key] ?? '');
       if (!isNaN(manual) && manual > 0) { rateCache.set(key, manual); return manual; }
-      // Try fetching
       try {
         const r = await fetchRate(date, from, to);
         rateCache.set(key, r);
@@ -291,15 +160,13 @@ export default function BalanceInput() {
     }
 
     try {
-      // ── Phase 1: pre-resolve every rate we will need ──────────────────────
       for (const acc of activeAccounts) {
         if (acc.currency !== baseCurrency)
           await resolveRate(acc.currency, baseCurrency, periodDate, `Balance: ${acc.name}`);
       }
       const txMeta: { drafts: TxDraft[]; label: string }[] = [
-        { drafts: txDrafts.salary,     label: 'Salary / Income' },
-        { drafts: txDrafts.dividend,   label: 'Dividends' },
-        { drafts: txDrafts.tax,        label: 'Taxes Paid' },
+        { drafts: txDrafts.income,     label: 'Income' },
+        { drafts: txDrafts.tax,        label: 'Taxes' },
         { drafts: txDrafts.investment, label: 'Investment' },
         { drafts: txDrafts.pension,    label: 'Pension' },
       ];
@@ -311,14 +178,12 @@ export default function BalanceInput() {
         }
       }
 
-      // ── Phase 2: if any rates are still missing, ask the user ─────────────
       if (failed.length > 0) {
         setPendingRates(failed);
         setLoading(false);
         return;
       }
 
-      // ── Phase 3: all rates resolved — save ────────────────────────────────
       const periodId = editPeriodId ?? uuidv4();
 
       const entries: BalanceEntry[] = activeAccounts.map((acc) => {
@@ -350,11 +215,10 @@ export default function BalanceInput() {
         });
       }
 
-      for (const d of txDrafts.salary)     saveTx('income_salary',    d,  1);
-      for (const d of txDrafts.tax)        saveTx('tax_paid',         d,  1);
-      for (const d of txDrafts.dividend)   saveTx('income_dividend',  d,  1);
-      for (const d of txDrafts.investment) saveTx('investment',       d, d.direction === 'in' ? 1 : -1);
-      for (const d of txDrafts.pension)    saveTx('pension_activity', d, d.direction === 'in' ? 1 : -1);
+      for (const d of txDrafts.income)      saveTx(d.subtype,     d,  1);
+      for (const d of txDrafts.tax)         saveTx('tax_paid',    d, d.direction === 'in' ? 1 : -1);
+      for (const d of txDrafts.investment)   saveTx('investment',        d, d.direction === 'in' ? 1 : -1);
+      for (const d of txDrafts.pension)      saveTx('pension_activity',  d, d.direction === 'in' ? 1 : -1);
 
       setPendingRates([]);
       navigate('/overview');
@@ -517,51 +381,52 @@ export default function BalanceInput() {
               </p>
             </div>
 
-            {/* Income */}
-            <div className="rounded-xl border border-emerald-200 overflow-hidden">
-              <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-100">
-                <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Income</span>
+            {/* Existing transactions in the period window */}
+            {existingTxsInRange.length > 0 && (
+              <div className="rounded-xl border border-gray-200 overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Already recorded ({existingTxsInRange.length})
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs font-medium text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                        <th className="px-4 py-2">Date</th>
+                        <th className="px-4 py-2">Type</th>
+                        <th className="px-4 py-2 text-right">Amount</th>
+                        <th className="px-4 py-2">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {existingTxsInRange.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-gray-400 whitespace-nowrap">
+                            {new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{existingTxLabel(tx)}</td>
+                          <td className={`px-4 py-2 text-right font-medium tabular-nums whitespace-nowrap ${tx.amount < 0 ? 'text-red-500' : 'text-gray-800'}`}>
+                            {tx.amount < 0 ? '-' : ''}{formatCurrency(Math.abs(tx.amount), tx.currency)}
+                          </td>
+                          <td className="px-4 py-2 text-gray-400 text-xs">{tx.description || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              {txDrafts.salary.map((d, i) => renderTxRow('salary', 'Salary / Income', d, i))}
-              {addRowButton('salary')}
-            </div>
+            )}
 
-            {/* Investment */}
-            <div className="rounded-xl border border-violet-200 overflow-hidden">
-              <div className="bg-violet-50 px-4 py-2 border-b border-violet-100">
-                <span className="text-xs font-bold text-violet-700 uppercase tracking-wider">Investment</span>
-              </div>
-              <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock Purchases / Sells</span>
-              </div>
-              {txDrafts.investment.map((d, i) => renderDirTxRow('investment', 'Bought', 'Sold', d, i))}
-              {addRowButton('investment')}
-              <div className="px-4 py-1.5 bg-gray-50 border-t border-gray-100 border-b border-gray-100">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Dividends</span>
-              </div>
-              {txDrafts.dividend.map((d, i) => renderTxRow('dividend', 'Dividends', d, i))}
-              {addRowButton('dividend')}
-            </div>
-
-            {/* Taxes */}
-            <div className="rounded-xl border border-red-200 overflow-hidden">
-              <div className="bg-red-50 px-4 py-2 border-b border-red-100">
-                <span className="text-xs font-bold text-red-700 uppercase tracking-wider">Taxes</span>
-              </div>
-              <p className="px-4 py-2 text-xs text-gray-500 italic border-b border-red-100">
-                Add the taxes you paid in this period as a positive value.
-              </p>
-              {txDrafts.tax.map((d, i) => renderTxRow('tax', 'Taxes Paid', d, i))}
-              {addRowButton('tax')}
-            </div>
-
-            {/* Pension */}
-            <div className="rounded-xl border border-indigo-200 overflow-hidden">
-              <div className="bg-indigo-50 px-4 py-2 border-b border-indigo-100">
-                <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">Pension</span>
-              </div>
-              {txDrafts.pension.map((d, i) => renderDirTxRow('pension', 'Contribution', 'Withdrawal', d, i))}
-              {addRowButton('pension')}
+            {/* New transaction input */}
+            <div className="pt-1">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Add new transactions</p>
+              <TransactionInputSection
+                txDrafts={txDrafts}
+                setTxDrafts={setTxDrafts}
+                baseCurrency={baseCurrency}
+                periodDate={periodDate}
+              />
             </div>
           </div>
         )}
@@ -571,7 +436,6 @@ export default function BalanceInput() {
           <div className="space-y-4">
             <h2 className="font-semibold text-gray-900">Confirm &amp; Save</h2>
 
-            {/* Manual exchange-rate inputs — shown at top when automatic fetch fails */}
             {pendingRates.length > 0 && (
               <div ref={ratesPanelRef} className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
                 <div className="flex gap-2">
@@ -598,9 +462,7 @@ export default function BalanceInput() {
                       </div>
                       <span className="text-xs text-gray-500 italic shrink-0">{r.label}</span>
                       <input
-                        type="number"
-                        min="0"
-                        step="any"
+                        type="number" min="0" step="any"
                         placeholder={`1 ${r.from} = ? ${r.to}`}
                         value={manualRates[r.key] ?? ''}
                         onChange={(e) => setManualRates((prev) => ({ ...prev, [r.key]: e.target.value }))}

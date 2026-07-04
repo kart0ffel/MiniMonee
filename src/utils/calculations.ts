@@ -101,7 +101,7 @@ export function computeMetrics(
   );
   const startCash = sumEntries(prevEntries, cashAccountIds);
   const endCash = sumEntries(periodEntries, cashAccountIds);
-  const income = sumTx(periodTxs, ['income_salary', 'income_dividend']);
+  const income = sumTx(periodTxs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
   const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
   const netInvested = investBought - investSold;
   const taxesPaid = sumTx(periodTxs, ['tax_paid']);
@@ -188,7 +188,7 @@ export function buildRangeWaterfallSteps(
       if (prevForWindow && t.date <= prevForWindow.date) return false;
       return true;
     });
-    income += sumTx(txs, ['income_salary', 'income_dividend']);
+    income += sumTx(txs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
     const inv = getInvestFlows(txs);
     investBought += inv.bought;
     investSold += inv.sold;
@@ -257,7 +257,7 @@ export function buildWaterfallSteps(
 
   const startCash = sumEntries(prevEntries, cashIds);
   const endCash = sumEntries(periodEntries, cashIds);
-  const income = sumTx(periodTxs, ['income_salary', 'income_dividend']);
+  const income = sumTx(periodTxs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
   const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
   const taxesPaid = sumTx(periodTxs, ['tax_paid']);
   const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);

@@ -10,7 +10,7 @@ import Performance from './pages/Performance';
 import Pension from './pages/Pension';
 import Waterfall from './pages/Waterfall';
 import DataManager from './pages/DataManager';
-import Transactions from './pages/Transactions';
+import AddTransactions from './pages/AddTransactions';
 
 function AppRoutes() {
   const { data } = useData();
@@ -33,9 +33,9 @@ function AppRoutes() {
         <Route path="/pension" element={<Pension />} />
         <Route path="/waterfall" element={<Waterfall />} />
         <Route path="/input" element={<BalanceInput />} />
+        <Route path="/transactions" element={<AddTransactions />} />
         <Route path="/accounts" element={<Setup />} />
-        <Route path="/transactions" element={<Transactions />} />
-        <Route path="/data" element={<DataManager />} />
+<Route path="/data" element={<DataManager />} />
         <Route path="/welcome" element={<Navigate to="/overview" replace />} />
         <Route path="*" element={<Navigate to="/overview" replace />} />
       </Routes>

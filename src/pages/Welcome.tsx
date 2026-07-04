@@ -67,7 +67,7 @@ export default function Welcome() {
 
         {/* Feature pills */}
         <div className="flex flex-wrap gap-2 justify-center">
-          {['Multi-currency', 'Stocks & Pension', 'No login', '100% Private', 'Portable JSON'].map((f) => (
+          {['Multi-currency', 'Investments & Pension', 'No login', '100% Private', 'Portable JSON'].map((f) => (
             <span key={f} className="px-3 py-1 bg-gray-700 text-gray-300 rounded-full text-sm">
               {f}
             </span>
@@ -167,7 +167,7 @@ export default function Welcome() {
             </p>
             <p className="text-gray-400 text-sm leading-relaxed">
               It is suited for people who hold accounts in <strong className="text-gray-300">multiple currencies</strong>,
-              have assets spread across different types (cash, stocks, real estate, pension), and want
+              have assets spread across different types (cash, investments, real estate, pension), and want
               a <strong className="text-gray-300">long-term view</strong> of wealth rather than a day-to-day budget.
             </p>
           </div>

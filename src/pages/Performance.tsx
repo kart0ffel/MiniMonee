@@ -167,8 +167,8 @@ export default function Performance() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Trading Performance</h1>
-        <p className="text-gray-500 text-sm mt-1">Stock portfolio value and unrealized P&amp;L over time</p>
+        <h1 className="text-2xl font-bold text-gray-900">Investment Performance</h1>
+        <p className="text-gray-500 text-sm mt-1">Investment portfolio value and unrealized P&amp;L over time</p>
       </div>
 
       <RangeSelector
@@ -179,7 +179,7 @@ export default function Performance() {
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Portfolio Value"   value={latestStockValue} currency={baseCurrency} neutral />
+        <StatCard label="Investment Value"   value={latestStockValue} currency={baseCurrency} neutral />
         <StatCard label="Last Period P&L"   value={latestPL}         currency={baseCurrency} />
         <StatCard label="Cumulative P&L"    value={plData.length ? cumulativePL : null} currency={baseCurrency} />
       </div>
@@ -196,7 +196,7 @@ export default function Performance() {
         <>
           {/* Line chart: stock portfolio value */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Stock Portfolio Value</h2>
+            <h2 className="font-semibold text-gray-900 mb-4">Investment Value</h2>
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={portfolioData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <defs>
@@ -245,7 +245,7 @@ export default function Performance() {
                 </BarChart>
               </ResponsiveContainer>
               <p className="text-xs text-gray-400 mt-3">
-                P&amp;L = (End stocks value − Start stocks value) − Net invested in the period.
+                P&amp;L = (End investment value − Start investment value) − Net invested in the period.
               </p>
             </div>
           )}
@@ -255,7 +255,7 @@ export default function Performance() {
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
               <h2 className="font-semibold text-gray-900 mb-1">Cumulative Net Invested</h2>
               <p className="text-xs text-gray-400 mb-4">
-                Total capital deployed into stocks (bought − sold) from the beginning of the dataset — not reset by the date range filter.
+                Total capital deployed into investments (bought − sold) from the beginning of the dataset — not reset by the date range filter.
               </p>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={netContribData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
@@ -284,7 +284,7 @@ export default function Performance() {
                 <thead>
                   <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
                     <th className="px-5 py-3">Period</th>
-                    <th className="px-5 py-3 text-right">Portfolio Value</th>
+                    <th className="px-5 py-3 text-right">Investment Value</th>
                     <th className="px-5 py-3 text-right">P&amp;L</th>
                     <th className="px-5 py-3 text-right">Net Invested (Cumul.)</th>
                   </tr>

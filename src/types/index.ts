@@ -7,8 +7,12 @@ export type AccountCategory =
   | 'others';
 
 export type TransactionType =
-  | 'income_salary'
+  | 'income_employment'
   | 'income_dividend'
+  | 'income_interest'
+  | 'income_rental'
+  | 'income_other'
+  | 'income_salary'   // legacy
   | 'tax_paid'
   | 'investment'
   | 'pension_activity';
@@ -86,7 +90,7 @@ export const CATEGORY_LABELS: Record<AccountCategory, string> = {
   pension: 'Pension',
   real_estate: 'Real Estate',
   liabilities: 'Liabilities',
-  stocks: 'Stocks',
+  stocks: 'Investments',
   others: 'Others',
 };
 
@@ -100,11 +104,15 @@ export const CATEGORY_COLORS: Record<AccountCategory, string> = {
 };
 
 export const TRANSACTION_LABELS: Record<TransactionType, string> = {
-  income_salary: 'Salary / Income',
-  income_dividend: 'Dividends',
-  tax_paid: 'Taxes Paid',
-  investment: 'Investment',
-  pension_activity: 'Pension',
+  income_employment: 'Employment',
+  income_dividend:   'Dividend',
+  income_interest:   'Interest',
+  income_rental:     'Rental',
+  income_other:      'Other Income',
+  income_salary:     'Salary / Income',  // legacy
+  tax_paid:          'Taxes Paid',
+  investment:        'Investment',
+  pension_activity:  'Pension',
 };
 
 // Fallback labels for legacy stored data migrated from old type names
