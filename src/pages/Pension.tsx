@@ -36,7 +36,7 @@ function AreaTip({ active, payload, label, currency }: any) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      <p className="text-violet-600 font-medium">{formatCurrency(payload[0].value, currency)}</p>
+      <p className="text-indigo-600 font-medium">{formatCurrency(payload[0].value, currency)}</p>
     </div>
   );
 }
@@ -48,7 +48,7 @@ function BarTip({ active, payload, label, currency }: any) {
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm">
       <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      <span className={`font-medium ${v >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
+      <span className={`font-medium ${v >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
         {v >= 0 ? '+' : ''}{formatCurrency(v, currency)}
       </span>
     </div>
@@ -70,35 +70,7 @@ function StatCard({ label, value, currency, neutral }: { label: string; value: n
   );
 }
 
-function RangeSelector({ range, setRange, customFrom, setCustomFrom, customTo, setCustomTo }: {
-  range: RangeKey; setRange: (r: RangeKey) => void;
-  customFrom: string; setCustomFrom: (v: string) => void;
-  customTo: string; setCustomTo: (v: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
-        {PRESETS.map(({ key, label }) => (
-          <button key={key} onClick={() => setRange(key)}
-            className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${range === key ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {range === 'custom' && (
-        <div className="flex items-center gap-2 text-sm">
-          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
-          <span className="text-gray-400">to</span>
-          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default function Performance() {
+export default function Pension() {
   const { data } = useData();
   const [range, setRange] = useState<RangeKey>('1Y');
   const [customFrom, setCustomFrom] = useState('');
@@ -107,7 +79,7 @@ export default function Performance() {
   if (!data) return null;
 
   const baseCurrency = data.meta.baseCurrency;
-  const stockAccounts = data.accounts.filter((a) => a.category === 'stocks');
+  const pensionAccounts = data.accounts.filter((a) => a.category === 'pension');
 
   const allSorted = [...data.periods].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -122,54 +94,69 @@ export default function Performance() {
     return true;
   });
 
-  function stockValueForPeriod(periodId: string): number {
-    return stockAccounts.reduce((sum, acc) => {
+  function pensionValueForPeriod(periodId: string): number {
+    return pensionAccounts.reduce((sum, acc) => {
       const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === periodId);
       return sum + (entry?.valueInBase ?? 0);
     }, 0);
   }
 
-  // Area chart: total stock portfolio value for every period in range
+  // Area chart: total pension portfolio value for every period in range
   const portfolioData = periodsInRange.map((p) => ({
     date: fmtDate(p.date),
-    value: stockValueForPeriod(p.id),
+    value: pensionValueForPeriod(p.id),
   }));
 
-  // Bar chart: unrealized P&L, only periods where it's been computed
+  // Bar chart: pension P&L, only periods where it's been computed
   const plData = periodsInRange
-    .filter((p) => p.metrics.unrealizedPL !== null)
-    .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.unrealizedPL! }));
+    .filter((p) => p.metrics.pensionPL !== null)
+    .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.pensionPL! }));
 
-  const latest           = periodsInRange[periodsInRange.length - 1];
-  const latestStockValue = latest ? stockValueForPeriod(latest.id) : null;
-  const latestPL         = latest?.metrics.unrealizedPL ?? null;
-  const cumulativePL     = plData.reduce((s, d) => s + d.pl, 0);
+  const latest            = periodsInRange[periodsInRange.length - 1];
+  const latestPensionValue = latest ? pensionValueForPeriod(latest.id) : null;
+  const latestPL          = latest?.metrics.pensionPL ?? null;
+  const cumulativePL      = plData.reduce((s, d) => s + d.pl, 0);
 
   const noData = allSorted.length < 2;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Trading Performance</h1>
-        <p className="text-gray-500 text-sm mt-1">Stock portfolio value and unrealized P&amp;L over time</p>
+        <h1 className="text-2xl font-bold text-gray-900">Pension</h1>
+        <p className="text-gray-500 text-sm mt-1">Pension portfolio value and growth over time</p>
       </div>
 
-      <RangeSelector
-        range={range} setRange={setRange}
-        customFrom={customFrom} setCustomFrom={setCustomFrom}
-        customTo={customTo} setCustomTo={setCustomTo}
-      />
+      {/* Range selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+          {PRESETS.map(({ key, label }) => (
+            <button key={key} onClick={() => setRange(key)}
+              className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${range === key ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {range === 'custom' && (
+          <div className="flex items-center gap-2 text-sm">
+            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            <span className="text-gray-400">to</span>
+            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+          </div>
+        )}
+      </div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Portfolio Value"   value={latestStockValue} currency={baseCurrency} neutral />
-        <StatCard label="Last Period P&L"   value={latestPL}         currency={baseCurrency} />
-        <StatCard label="Cumulative P&L"    value={plData.length ? cumulativePL : null} currency={baseCurrency} />
+        <StatCard label="Pension Value"    value={latestPensionValue} currency={baseCurrency} neutral />
+        <StatCard label="Last Period P&L"  value={latestPL}           currency={baseCurrency} />
+        <StatCard label="Cumulative P&L"   value={plData.length ? cumulativePL : null} currency={baseCurrency} />
       </div>
 
       {noData ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <p className="text-gray-500">Performance is calculated from the second period onward. Add more data points to see charts.</p>
+          <p className="text-gray-500">Growth is calculated from the second period onward. Add more data points to see charts.</p>
         </div>
       ) : portfolioData.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
@@ -177,15 +164,15 @@ export default function Performance() {
         </div>
       ) : (
         <>
-          {/* Line chart: stock portfolio value */}
+          {/* Area chart: pension portfolio value */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Stock Portfolio Value</h2>
+            <h2 className="font-semibold text-gray-900 mb-4">Pension Portfolio Value</h2>
             <ResponsiveContainer width="100%" height={280}>
               <AreaChart data={portfolioData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <defs>
-                  <linearGradient id="stockGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                  <linearGradient id="pensionGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -195,17 +182,17 @@ export default function Performance() {
                 <Area
                   type="monotone"
                   dataKey="value"
-                  stroke="#8b5cf6"
+                  stroke="#6366f1"
                   strokeWidth={2}
-                  fill="url(#stockGradient)"
-                  dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 0 }}
+                  fill="url(#pensionGradient)"
+                  dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
                   activeDot={{ r: 5 }}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Bar chart: unrealized P&L per period */}
+          {/* Bar chart: pension P&L per period */}
           {plData.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
               <h2 className="font-semibold text-gray-900 mb-4">P&amp;L per Period</h2>
@@ -216,15 +203,15 @@ export default function Performance() {
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
                   <Tooltip content={<BarTip currency={baseCurrency} />} />
                   <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
-                  <Bar dataKey="pl" name="Invest. P&L" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                  <Bar dataKey="pl" name="Pension P&L" radius={[4, 4, 0, 0]} maxBarSize={60}>
                     {plData.map((d, i) => (
-                      <Cell key={i} fill={d.pl >= 0 ? '#8b5cf6' : '#c4b5fd'} opacity={0.9} />
+                      <Cell key={i} fill={d.pl >= 0 ? '#6366f1' : '#a5b4fc'} opacity={0.9} />
                     ))}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
               <p className="text-xs text-gray-400 mt-3">
-                P&amp;L = (End stocks value − Start stocks value) − Net invested in the period.
+                P&amp;L = (End pension value − Start pension value) − Net contributions in the period.
               </p>
             </div>
           )}
@@ -239,14 +226,14 @@ export default function Performance() {
                 <thead>
                   <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
                     <th className="px-5 py-3">Period</th>
-                    <th className="px-5 py-3 text-right">Portfolio Value</th>
+                    <th className="px-5 py-3 text-right">Pension Value</th>
                     <th className="px-5 py-3 text-right">P&amp;L</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {[...periodsInRange].reverse().map((p) => {
-                    const val = stockValueForPeriod(p.id);
-                    const pl  = p.metrics.unrealizedPL;
+                    const val = pensionValueForPeriod(p.id);
+                    const pl  = p.metrics.pensionPL;
                     return (
                       <tr key={p.id} className="hover:bg-gray-50">
                         <td className="px-5 py-3 text-gray-700">
@@ -255,7 +242,7 @@ export default function Performance() {
                         <td className="px-5 py-3 text-right font-semibold text-gray-900">
                           {formatCurrency(val, baseCurrency)}
                         </td>
-                        <td className={`px-5 py-3 text-right font-medium ${pl === null ? 'text-gray-300' : pl >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
+                        <td className={`px-5 py-3 text-right font-medium ${pl === null ? 'text-gray-300' : pl >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
                           {pl !== null ? `${pl >= 0 ? '+' : ''}${formatCurrency(pl, baseCurrency)}` : '—'}
                         </td>
                       </tr>

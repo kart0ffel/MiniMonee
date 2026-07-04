@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   TrendingUp, BarChart2, Activity, GitCommit,
-  PlusCircle, Settings, Database, Menu, X, Receipt,
+  PlusCircle, Settings, Database, Menu, X, Receipt, PiggyBank,
 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
 
 const NAV_ITEMS = [
-  { to: '/overview', label: 'Net Worth', icon: TrendingUp },
-  { to: '/expenses', label: 'Expenses', icon: BarChart2 },
-  { to: '/performance', label: 'Performance', icon: Activity },
-  { to: '/waterfall', label: 'Waterfall', icon: GitCommit },
+  { to: '/overview',    label: 'Net Worth',          icon: TrendingUp },
+  { to: '/expenses',    label: 'Expenses',            icon: BarChart2  },
+  { to: '/performance', label: 'Trading Performance', icon: Activity   },
+  { to: '/pension',     label: 'Pension',             icon: PiggyBank  },
+  { to: '/waterfall',   label: 'Waterfall',           icon: GitCommit  },
 ];
 
 const SECONDARY_ITEMS = [
