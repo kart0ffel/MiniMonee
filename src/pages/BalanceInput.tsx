@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { Check, ChevronRight, ChevronLeft, AlertCircle, Loader } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
-import { Account, BalanceEntry, Period, Transaction, CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
+import { Account, BalanceEntry, Period, Transaction, ExchangeRateEntry, CATEGORY_LABELS, TRANSACTION_LABELS } from '../types';
 import { formatCurrency } from '../utils/currency';
 import TransactionInputSection, { TxDraft, TxDrafts, INCOME_OPTIONS, makeEmptyDrafts } from '../components/TransactionInputSection';
 
@@ -17,11 +17,11 @@ function existingTxLabel(tx: Transaction): string {
   if (tx.type === 'investment')       return tx.amount >= 0 ? 'Investment · Bought' : 'Investment · Sold';
   if (tx.type === 'pension_activity') return tx.amount >= 0 ? 'Pension · Contribution' : 'Pension · Withdrawal';
   if (tx.type === 'tax_paid')         return tx.amount < 0 ? 'Tax Refund' : 'Taxes Paid';
-  return LEGACY_TRANSACTION_LABELS[tx.type] ?? tx.type;
+  return TRANSACTION_LABELS[tx.type];
 }
 
 export default function BalanceInput() {
-  const { data, addPeriod, updatePeriod, fetchRate, upsertTransaction } = useData();
+  const { data, addPeriod, updatePeriod, fetchRate, upsertTransaction, upsertExchangeRates } = useData();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const editPeriodId = params.get('edit');
@@ -186,32 +186,33 @@ export default function BalanceInput() {
 
       const periodId = editPeriodId ?? uuidv4();
 
+      // Persist manual rates to the exchange rates table.
+      const manualRateEntries: ExchangeRateEntry[] = [];
+      for (const [key, v] of Object.entries(manualRates)) {
+        const rate = parseFloat(v);
+        if (!isNaN(rate) && rate > 0) {
+          const [from, to, date] = key.split('|');
+          manualRateEntries.push({ date, from, to, rate });
+        }
+      }
+      if (manualRateEntries.length > 0) upsertExchangeRates(manualRateEntries);
+
       const entries: BalanceEntry[] = activeAccounts.map((acc) => {
         const rawVal = parseFloat(effectiveValue(acc.id) || '0') || 0;
-        const rate = acc.currency === baseCurrency
-          ? 1
-          : (rateCache.get(`${acc.currency}|${baseCurrency}|${periodDate}`) ?? 0);
-        return { id: uuidv4(), periodId, accountId: acc.id, value: rawVal, valueInBase: rawVal * rate, exchangeRate: rate };
+        return { id: uuidv4(), periodId, accountId: acc.id, value: rawVal };
       });
 
-      const period: Period = {
-        id: periodId, date: periodDate, note: periodNote,
-        metrics: { totalNetWorth: 0, netWorthByCategory: {}, expenses: null, unrealizedPL: null, pensionPL: null },
-      };
+      const period: Period = { id: periodId, date: periodDate, note: periodNote };
       if (editPeriodId) { updatePeriod(period, entries); } else { addPeriod(period, entries); }
 
       function saveTx(type: Transaction['type'], draft: TxDraft, sign: 1 | -1 = 1) {
         const absAmt = parseFloat(draft.amount);
         if (!absAmt || isNaN(absAmt)) return;
         const txDate = draft.date || periodDate;
-        const rate = draft.currency === baseCurrency
-          ? 1
-          : (rateCache.get(`${draft.currency}|${baseCurrency}|${txDate}`) ?? 0);
         const amount = absAmt * sign;
         upsertTransaction({
           id: uuidv4(), periodId: null, date: txDate, type, amount,
-          currency: draft.currency, amountInBase: amount * rate,
-          exchangeRate: rate, description: draft.description,
+          currency: draft.currency, description: draft.description,
         });
       }
 

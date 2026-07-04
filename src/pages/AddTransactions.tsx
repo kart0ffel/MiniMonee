@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Check, AlertCircle, Loader } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
-import { Transaction } from '../types';
+import { Transaction, ExchangeRateEntry } from '../types';
 import TransactionInputSection, {
   TxDraft, TxDrafts, makeEmptyDrafts,
 } from '../components/TransactionInputSection';
@@ -10,10 +10,9 @@ import TransactionInputSection, {
 interface PendingRate { key: string; from: string; to: string; date: string; label: string }
 
 export default function AddTransactions() {
-  const { data, fetchRate, upsertTransaction } = useData();
+  const { data, fetchRate, upsertTransaction, upsertExchangeRates } = useData();
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
 
-  const [defaultDate, setDefaultDate] = useState(new Date().toISOString().slice(0, 10));
   const [txDrafts, setTxDrafts] = useState<TxDrafts>(() => makeEmptyDrafts(baseCurrency));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -24,6 +23,12 @@ export default function AddTransactions() {
   const ratesPanelRef = useRef<HTMLDivElement>(null);
 
   if (!data) return null;
+
+  // A row is valid only when it has both a date and a non-zero amount.
+  function isRowFilled(d: TxDraft): boolean {
+    const amt = parseFloat(d.amount);
+    return !!d.date && !!d.amount && !isNaN(amt) && amt !== 0;
+  }
 
   async function handleSave() {
     setLoading(true);
@@ -51,7 +56,6 @@ export default function AddTransactions() {
     }
 
     try {
-      // Pre-resolve all rates needed
       const allDrafts: { draft: TxDraft; label: string }[] = [
         ...txDrafts.income.map((d) => ({ draft: d, label: 'Income' })),
         ...txDrafts.tax.map((d) => ({ draft: d, label: 'Taxes' })),
@@ -59,9 +63,8 @@ export default function AddTransactions() {
         ...txDrafts.pension.map((d) => ({ draft: d, label: 'Pension' })),
       ];
       for (const { draft: d, label } of allDrafts) {
-        const amt = parseFloat(d.amount);
-        if (d.currency !== baseCurrency && d.amount && !isNaN(amt) && amt !== 0)
-          await resolveRate(d.currency, baseCurrency, d.date || defaultDate, label);
+        if (isRowFilled(d) && d.currency !== baseCurrency)
+          await resolveRate(d.currency, baseCurrency, d.date, label);
       }
 
       if (failed.length > 0) {
@@ -71,40 +74,37 @@ export default function AddTransactions() {
         return;
       }
 
+      // Persist any manually entered rates to the exchange rates table.
+      const manualRateEntries: ExchangeRateEntry[] = [];
+      for (const [key, v] of Object.entries(manualRates)) {
+        const rate = parseFloat(v);
+        if (!isNaN(rate) && rate > 0) {
+          const [from, to, date] = key.split('|');
+          manualRateEntries.push({ date, from, to, rate });
+        }
+      }
+      if (manualRateEntries.length > 0) upsertExchangeRates(manualRateEntries);
+
       function saveTx(type: Transaction['type'], draft: TxDraft, sign: 1 | -1 = 1) {
-        const absAmt = parseFloat(draft.amount);
-        if (!absAmt || isNaN(absAmt)) return;
-        const txDate = draft.date || defaultDate;
-        const rate = draft.currency === baseCurrency
-          ? 1
-          : (rateCache.get(`${draft.currency}|${baseCurrency}|${txDate}`) ?? 0);
-        const amount = absAmt * sign;
+        if (!isRowFilled(draft)) return;
+        const amount = parseFloat(draft.amount) * sign;
         upsertTransaction({
-          id: uuidv4(), periodId: null, date: txDate, type, amount,
-          currency: draft.currency, amountInBase: amount * rate,
-          exchangeRate: rate, description: draft.description,
+          id: uuidv4(), periodId: null, date: draft.date, type, amount,
+          currency: draft.currency, description: draft.description,
         });
       }
 
       let count = 0;
-      for (const d of txDrafts.income) {
-        const amt = parseFloat(d.amount);
-        if (d.amount && !isNaN(amt) && amt !== 0) { saveTx(d.subtype, d, 1); count++; }
-      }
-      for (const d of txDrafts.tax) {
-        const amt = parseFloat(d.amount);
-        if (d.amount && !isNaN(amt) && amt !== 0) { saveTx('tax_paid', d, d.direction === 'in' ? 1 : -1); count++; }
-      }
-      for (const d of txDrafts.investment) {
-        const amt = parseFloat(d.amount);
-        if (d.amount && !isNaN(amt) && amt !== 0) { saveTx('investment', d, d.direction === 'in' ? 1 : -1); count++; }
-      }
-      for (const d of txDrafts.pension) {
-        const amt = parseFloat(d.amount);
-        if (d.amount && !isNaN(amt) && amt !== 0) { saveTx('pension_activity', d, d.direction === 'in' ? 1 : -1); count++; }
-      }
+      for (const d of txDrafts.income)     { if (isRowFilled(d)) { saveTx(d.subtype,          d,  1);                          count++; } }
+      for (const d of txDrafts.tax)        { if (isRowFilled(d)) { saveTx('tax_paid',          d, d.direction === 'in' ? 1 : -1); count++; } }
+      for (const d of txDrafts.investment) { if (isRowFilled(d)) { saveTx('investment',        d, d.direction === 'in' ? 1 : -1); count++; } }
+      for (const d of txDrafts.pension)    { if (isRowFilled(d)) { saveTx('pension_activity',  d, d.direction === 'in' ? 1 : -1); count++; } }
 
-      if (count === 0) { setError('No transactions to save — fill in at least one amount.'); setLoading(false); return; }
+      if (count === 0) {
+        setError('No transactions to save — fill in at least one date and amount.');
+        setLoading(false);
+        return;
+      }
 
       setPendingRates([]);
       setManualRates({});
@@ -124,29 +124,15 @@ export default function AddTransactions() {
         <p className="text-gray-500 text-sm mt-1">Record income, investments, taxes, or pension activity independently of a balance period.</p>
       </div>
 
-      {/* Default date */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Default date</label>
-        <p className="text-xs text-gray-400 mb-2">Used for any row where you leave the date blank.</p>
-        <input
-          type="date"
-          value={defaultDate}
-          onChange={(e) => setDefaultDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-      </div>
-
-      {/* Transaction input */}
       <div className="space-y-4">
         <TransactionInputSection
           txDrafts={txDrafts}
           setTxDrafts={setTxDrafts}
           baseCurrency={baseCurrency}
-          periodDate={defaultDate}
+          periodDate={new Date().toISOString().slice(0, 10)}
         />
       </div>
 
-      {/* Manual rate panel */}
       {pendingRates.length > 0 && (
         <div ref={ratesPanelRef} className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
           <div className="flex gap-2">
@@ -183,7 +169,6 @@ export default function AddTransactions() {
         </div>
       )}
 
-      {/* Feedback */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex gap-2">
           <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
@@ -197,7 +182,6 @@ export default function AddTransactions() {
         </div>
       )}
 
-      {/* Save */}
       <div className="flex justify-end">
         <button
           onClick={handleSave}

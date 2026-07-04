@@ -6,14 +6,14 @@ import {
 import { useData } from '../contexts/DataContext';
 import { exportToJson, importFromJson } from '../utils/storage';
 import { formatCurrency } from '../utils/currency';
-import { CATEGORY_LABELS, LEGACY_TRANSACTION_LABELS } from '../types';
+import { CATEGORY_LABELS, TRANSACTION_LABELS } from '../types';
 
 type Tab = 'balances' | 'periods' | 'transactions' | 'accounts' | 'rates' | 'json';
 type SortDir = 'asc' | 'desc';
 interface SortState { col: string; dir: SortDir }
 
 export default function DataManager() {
-  const { data, setData, recalculate, refetchMissingRates, clearData } = useData();
+  const { data, computed, setData, recalculate, refetchMissingRates, clearData } = useData();
   const [tab, setTab] = useState<Tab>('balances');
   const [importError, setImportError] = useState('');
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
@@ -30,9 +30,25 @@ export default function DataManager() {
   if (!data) return null;
 
   const baseCurrency = data.meta.baseCurrency;
-  const missingRateCount =
-    data.balanceEntries.filter((e) => e.exchangeRate === 0).length +
-    data.transactions.filter((t) => t.exchangeRate === 0).length;
+
+  // Count (currency, date) pairs needed by the data that are absent from the rates table.
+  const neededRateKeys = new Set<string>();
+  for (const e of data.balanceEntries) {
+    const acc = data.accounts.find((a) => a.id === e.accountId);
+    const period = data.periods.find((p) => p.id === e.periodId);
+    if (acc && period && acc.currency !== baseCurrency)
+      neededRateKeys.add(`${acc.currency}|${baseCurrency}|${period.date}`);
+  }
+  for (const t of data.transactions) {
+    if (t.currency !== baseCurrency)
+      neededRateKeys.add(`${t.currency}|${baseCurrency}|${t.date}`);
+  }
+  const missingRateCount = [...neededRateKeys].filter(
+    (key) => {
+      const [from, to, date] = key.split('|');
+      return !data.exchangeRates.some((r) => r.from === from && r.to === to && r.date === date);
+    },
+  ).length;
 
   // ── Sort / filter state helpers ──────────────────────────────────────────
 
@@ -124,7 +140,7 @@ export default function DataManager() {
         case 'type':        cmp = CATEGORY_LABELS[a.account!.category].localeCompare(CATEGORY_LABELS[b.account!.category]); break;
         case 'value':       cmp = a.entry.value - b.entry.value; break;
         case 'currency':    cmp = a.account!.currency.localeCompare(b.account!.currency); break;
-        case 'valueInBase': cmp = a.entry.valueInBase - b.entry.valueInBase; break;
+        case 'valueInBase': cmp = a.entry.value - b.entry.value; break;
         default:
           cmp = b.period!.date.localeCompare(a.period!.date) || a.account!.name.localeCompare(b.account!.name);
           return cmp;
@@ -144,10 +160,10 @@ export default function DataManager() {
       let cmp = 0;
       switch (perSort?.col) {
         case 'date':        cmp = a.date.localeCompare(b.date); break;
-        case 'netWorth':    cmp = a.metrics.totalNetWorth - b.metrics.totalNetWorth; break;
-        case 'expenses':    cmp = (a.metrics.expenses ?? -Infinity) - (b.metrics.expenses ?? -Infinity); break;
-        case 'unrealizedPL': cmp = (a.metrics.unrealizedPL ?? -Infinity) - (b.metrics.unrealizedPL ?? -Infinity); break;
-        case 'pensionPL':   cmp = (a.metrics.pensionPL ?? -Infinity) - (b.metrics.pensionPL ?? -Infinity); break;
+        case 'netWorth':    cmp = (computed?.periodMetrics[a.id]?.totalNetWorth ?? 0) - (computed?.periodMetrics[b.id]?.totalNetWorth ?? 0); break;
+        case 'expenses':    cmp = (computed?.periodMetrics[a.id]?.expenses ?? -Infinity) - (computed?.periodMetrics[b.id]?.expenses ?? -Infinity); break;
+        case 'unrealizedPL': cmp = (computed?.periodMetrics[a.id]?.unrealizedPL ?? -Infinity) - (computed?.periodMetrics[b.id]?.unrealizedPL ?? -Infinity); break;
+        case 'pensionPL':   cmp = (computed?.periodMetrics[a.id]?.pensionPL ?? -Infinity) - (computed?.periodMetrics[b.id]?.pensionPL ?? -Infinity); break;
         default: return b.date.localeCompare(a.date);
       }
       return perSort!.dir === 'asc' ? cmp : -cmp;
@@ -159,7 +175,7 @@ export default function DataManager() {
   const txRows = [...data.transactions]
     .filter((t) => !txFilter ||
       t.date.includes(txFilter) ||
-      (LEGACY_TRANSACTION_LABELS[t.type] ?? t.type).toLowerCase().includes(txFilter) ||
+      (TRANSACTION_LABELS[t.type] ?? t.type).toLowerCase().includes(txFilter) ||
       (t.description ?? '').toLowerCase().includes(txFilter) ||
       t.currency.toLowerCase().includes(txFilter)
     )
@@ -167,9 +183,9 @@ export default function DataManager() {
       let cmp = 0;
       switch (txSort?.col) {
         case 'date':   cmp = a.date.localeCompare(b.date); break;
-        case 'type':   cmp = (LEGACY_TRANSACTION_LABELS[a.type] ?? a.type).localeCompare(LEGACY_TRANSACTION_LABELS[b.type] ?? b.type); break;
+        case 'type':   cmp = (TRANSACTION_LABELS[a.type] ?? a.type).localeCompare(TRANSACTION_LABELS[b.type] ?? b.type); break;
         case 'amount': cmp = a.amount - b.amount; break;
-        case 'base':   cmp = a.amountInBase - b.amountInBase; break;
+        case 'base':   cmp = a.amount - b.amount; break;
         default: return b.date.localeCompare(a.date);
       }
       return txSort!.dir === 'asc' ? cmp : -cmp;
@@ -199,24 +215,10 @@ export default function DataManager() {
       return accSort!.dir === 'asc' ? cmp : -cmp;
     });
 
-  // Rates — build rate map, then filter pairs (columns) and sort date rows
+  // Rates — build rate map from the exchange rates table
   const rateMap = new Map<string, number>();
-  for (const [key, rate] of Object.entries(data.exchangeRateCache)) {
-    const [date, from, to] = key.split('|');
-    rateMap.set(`${from}→${to}|${date}`, rate);
-  }
-  for (const entry of data.balanceEntries) {
-    if (!entry.exchangeRate || entry.exchangeRate === 0) continue;
-    const acc = data.accounts.find((a) => a.id === entry.accountId);
-    const period = data.periods.find((p) => p.id === entry.periodId);
-    if (!acc || !period || acc.currency === baseCurrency) continue;
-    const k = `${acc.currency}→${baseCurrency}|${period.date}`;
-    if (!rateMap.has(k)) rateMap.set(k, entry.exchangeRate);
-  }
-  for (const tx of data.transactions) {
-    if (!tx.exchangeRate || tx.exchangeRate === 0 || tx.currency === baseCurrency) continue;
-    const k = `${tx.currency}→${baseCurrency}|${tx.date}`;
-    if (!rateMap.has(k)) rateMap.set(k, tx.exchangeRate);
+  for (const r of data.exchangeRates) {
+    rateMap.set(`${r.from}→${r.to}|${r.date}`, r.rate);
   }
   const allRateDates = [...new Set([...rateMap.keys()].map((k) => k.split('|')[1]))].sort();
   const allRatePairs = [...new Set([...rateMap.keys()].map((k) => k.split('|')[0]))].sort();
@@ -413,7 +415,16 @@ export default function DataManager() {
                         </td>
                         <td className="px-5 py-3 text-gray-500">{account!.currency}</td>
                         <td className="px-5 py-3 text-right tabular-nums text-gray-600">
-                          {account!.currency !== baseCurrency ? formatCurrency(entry.valueInBase, baseCurrency) : '—'}
+                          {(() => {
+                            if (account!.currency === baseCurrency) return '—';
+                            const period = data.periods.find((p) => p.id === entry.periodId);
+                            const rate = period
+                              ? data.exchangeRates.find(
+                                  (r) => r.from === account!.currency && r.to === baseCurrency && r.date === period.date,
+                                )?.rate ?? null
+                              : null;
+                            return rate !== null ? formatCurrency(entry.value * rate, baseCurrency) : '?';
+                          })()}
                         </td>
                       </tr>
                     ))}
@@ -447,16 +458,16 @@ export default function DataManager() {
                         {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
                       <td className="px-5 py-3 text-right font-semibold text-gray-900">
-                        {formatCurrency(p.metrics.totalNetWorth, baseCurrency, true)}
+                        {formatCurrency(computed?.periodMetrics[p.id]?.totalNetWorth ?? 0, baseCurrency, true)}
                       </td>
-                      <td className={`px-5 py-3 text-right ${p.metrics.expenses === null ? 'text-gray-300' : p.metrics.expenses >= 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                        {p.metrics.expenses !== null ? formatCurrency(p.metrics.expenses, baseCurrency, true) : '—'}
+                      <td className={`px-5 py-3 text-right ${(computed?.periodMetrics[p.id]?.expenses ?? null) === null ? 'text-gray-300' : (computed?.periodMetrics[p.id]?.expenses ?? 0) >= 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                        {(computed?.periodMetrics[p.id]?.expenses ?? null) !== null ? formatCurrency(computed!.periodMetrics[p.id].expenses!, baseCurrency, true) : '—'}
                       </td>
-                      <td className={`px-5 py-3 text-right ${p.metrics.unrealizedPL === null ? 'text-gray-300' : p.metrics.unrealizedPL >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
-                        {p.metrics.unrealizedPL !== null ? `${p.metrics.unrealizedPL >= 0 ? '+' : ''}${formatCurrency(p.metrics.unrealizedPL, baseCurrency, true)}` : '—'}
+                      <td className={`px-5 py-3 text-right ${(computed?.periodMetrics[p.id]?.unrealizedPL ?? null) === null ? 'text-gray-300' : (computed?.periodMetrics[p.id]?.unrealizedPL ?? 0) >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
+                        {(computed?.periodMetrics[p.id]?.unrealizedPL ?? null) !== null ? `${computed!.periodMetrics[p.id].unrealizedPL! >= 0 ? '+' : ''}${formatCurrency(computed!.periodMetrics[p.id].unrealizedPL!, baseCurrency, true)}` : '—'}
                       </td>
-                      <td className={`px-5 py-3 text-right ${p.metrics.pensionPL === null ? 'text-gray-300' : p.metrics.pensionPL >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
-                        {p.metrics.pensionPL !== null ? `${p.metrics.pensionPL >= 0 ? '+' : ''}${formatCurrency(p.metrics.pensionPL, baseCurrency, true)}` : '—'}
+                      <td className={`px-5 py-3 text-right ${(computed?.periodMetrics[p.id]?.pensionPL ?? null) === null ? 'text-gray-300' : (computed?.periodMetrics[p.id]?.pensionPL ?? 0) >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
+                        {(computed?.periodMetrics[p.id]?.pensionPL ?? null) !== null ? `${computed!.periodMetrics[p.id].pensionPL! >= 0 ? '+' : ''}${formatCurrency(computed!.periodMetrics[p.id].pensionPL!, baseCurrency, true)}` : '—'}
                       </td>
                       <td className="px-5 py-3 text-gray-400 text-xs">{p.note || '—'}</td>
                     </tr>
@@ -493,10 +504,16 @@ export default function DataManager() {
                       <td className="px-5 py-3 text-gray-600">
                         {new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </td>
-                      <td className="px-5 py-3 text-gray-700">{LEGACY_TRANSACTION_LABELS[t.type] ?? t.type}</td>
+                      <td className="px-5 py-3 text-gray-700">{TRANSACTION_LABELS[t.type] ?? t.type}</td>
                       <td className="px-5 py-3 text-right font-medium text-gray-900">{formatCurrency(t.amount, t.currency)}</td>
                       <td className="px-5 py-3 text-right text-gray-500">
-                        {t.currency !== baseCurrency ? formatCurrency(t.amountInBase, baseCurrency) : '—'}
+                        {(() => {
+                          if (t.currency === baseCurrency) return '—';
+                          const rate = data.exchangeRates.find(
+                            (r) => r.from === t.currency && r.to === baseCurrency && r.date === t.date,
+                          )?.rate ?? null;
+                          return rate !== null ? formatCurrency(t.amount * rate, baseCurrency) : '?';
+                        })()}
                       </td>
                       <td className="px-5 py-3 text-gray-400 text-xs">{t.description || '—'}</td>
                     </tr>

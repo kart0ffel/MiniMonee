@@ -99,7 +99,7 @@ function RangeSelector({ range, setRange, customFrom, setCustomFrom, customTo, s
 }
 
 export default function Performance() {
-  const { data } = useData();
+  const { data, computed } = useData();
   const [range, setRange] = useState<RangeKey>('1Y');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -107,7 +107,7 @@ export default function Performance() {
   if (!data) return null;
 
   const baseCurrency = data.meta.baseCurrency;
-  const stockAccounts = data.accounts.filter((a) => a.category === 'stocks');
+  const stockAccounts = data.accounts.filter((a) => a.category === 'investments');
 
   const allSorted = [...data.periods].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
@@ -122,23 +122,28 @@ export default function Performance() {
     return true;
   });
 
-  function stockValueForPeriod(periodId: string): number {
+  function stockValueForPeriod(period: typeof allSorted[number]): number {
     return stockAccounts.reduce((sum, acc) => {
-      const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === periodId);
-      return sum + (entry?.valueInBase ?? 0);
+      const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === period.id);
+      if (!entry) return sum;
+      if (acc.currency === baseCurrency) return sum + entry.value;
+      const rate = data!.exchangeRates.find(
+        (r) => r.from === acc.currency && r.to === baseCurrency && r.date === period.date,
+      )?.rate ?? 0;
+      return sum + entry.value * rate;
     }, 0);
   }
 
   // Area chart: total stock portfolio value for every period in range
   const portfolioData = periodsInRange.map((p) => ({
     date: fmtDate(p.date),
-    value: stockValueForPeriod(p.id),
+    value: stockValueForPeriod(p),
   }));
 
-  // Bar chart: unrealized P&L, only periods where it's been computed
+  // Bar chart: unrealized P&L from computed layer
   const plData = periodsInRange
-    .filter((p) => p.metrics.unrealizedPL !== null)
-    .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.unrealizedPL! }));
+    .filter((p) => computed?.periodMetrics[p.id]?.unrealizedPL != null)
+    .map((p) => ({ date: fmtDate(p.date), pl: computed!.periodMetrics[p.id].unrealizedPL! }));
 
   // Cumulative net invested — always computed from the FULL dataset so the
   // number is correct even when the date range hides earlier periods.
@@ -147,7 +152,13 @@ export default function Performance() {
   function cumulativeNetInvested(upToDate: string): number {
     return investmentTxs
       .filter((t) => t.date <= upToDate)
-      .reduce((sum, t) => sum + t.amountInBase, 0);
+      .reduce((sum, t) => {
+        if (t.currency === baseCurrency) return sum + t.amount;
+        const rate = data!.exchangeRates.find(
+          (r) => r.from === t.currency && r.to === baseCurrency && r.date === t.date,
+        )?.rate ?? 0;
+        return sum + t.amount * rate;
+      }, 0);
   }
 
   // Bar chart data for net contributions: only periods in range displayed,
@@ -158,8 +169,8 @@ export default function Performance() {
   }));
 
   const latest           = periodsInRange[periodsInRange.length - 1];
-  const latestStockValue = latest ? stockValueForPeriod(latest.id) : null;
-  const latestPL         = latest?.metrics.unrealizedPL ?? null;
+  const latestStockValue = latest ? stockValueForPeriod(latest) : null;
+  const latestPL         = latest ? (computed?.periodMetrics[latest.id]?.unrealizedPL ?? null) : null;
   const cumulativePL     = plData.reduce((s, d) => s + d.pl, 0);
 
   const noData = allSorted.length < 2;
@@ -291,8 +302,8 @@ export default function Performance() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {[...periodsInRange].reverse().map((p) => {
-                    const val = stockValueForPeriod(p.id);
-                    const pl  = p.metrics.unrealizedPL;
+                    const val = stockValueForPeriod(p);
+                    const pl  = computed?.periodMetrics[p.id]?.unrealizedPL ?? null;
                     return (
                       <tr key={p.id} className="hover:bg-gray-50">
                         <td className="px-5 py-3 text-gray-700">

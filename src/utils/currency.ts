@@ -1,5 +1,3 @@
-import { ExchangeRateCache } from '../types';
-
 export const CURRENCIES = [
   'AUD', 'BRL', 'CAD', 'CHF', 'CNY', 'CZK', 'DKK', 'EUR',
   'GBP', 'HKD', 'HUF', 'INR', 'JPY', 'MXN', 'NOK', 'NZD',
@@ -13,25 +11,11 @@ export const CURRENCY_SYMBOLS: Record<string, string> = {
   NZD: 'NZ$', PLN: 'zł', SEK: 'kr', SGD: 'S$', USD: '$', ZAR: 'R',
 };
 
-export function cacheKey(date: string, from: string, to: string): string {
-  return `${date}|${from}|${to}`;
-}
-
-export async function getExchangeRate(
-  date: string,
-  from: string,
-  to: string,
-  cache: ExchangeRateCache,
-): Promise<{ rate: number; key: string }> {
-  if (from === to) return { rate: 1, key: cacheKey(date, from, to) };
-
-  const key = cacheKey(date, from, to);
-  if (cache[key] !== undefined) return { rate: cache[key], key };
+export async function getExchangeRate(date: string, from: string, to: string): Promise<number> {
+  if (from === to) return 1;
 
   const errors: string[] = [];
 
-  // On localhost (Docker) use the nginx proxy to avoid CORS.
-  // On any real domain (GitHub Pages, etc.) call Frankfurter directly — CORS is allowed.
   const base = window.location.hostname === 'localhost'
     ? '/api/rates'
     : 'https://api.frankfurter.app';
@@ -50,7 +34,7 @@ export async function getExchangeRate(
       }
       const json = await res.json();
       const rate = json.rates?.[to];
-      if (rate !== undefined) return { rate, key };
+      if (rate !== undefined) return rate;
       errors.push(`API responded but returned no rate for ${to} (unsupported pair?)`);
     } catch (e) {
       errors.push(e instanceof Error ? e.message : String(e));

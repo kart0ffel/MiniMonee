@@ -44,7 +44,7 @@ function CustomTooltip({ active, payload, label, baseCurrency }: any) {
 }
 
 export default function Expenses() {
-  const { data } = useData();
+  const { data, computed } = useData();
   const [range, setRange] = useState<RangeKey>('1Y');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -55,7 +55,7 @@ export default function Expenses() {
 
   const allSorted = [...data.periods]
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .filter((p) => p.metrics.expenses !== null);
+    .filter((p) => (computed?.periodMetrics[p.id]?.expenses ?? null) !== null);
 
   const from = range === 'custom' ? customFrom : getRangeFrom(range);
   const to = range === 'custom' ? customTo : null;
@@ -68,7 +68,7 @@ export default function Expenses() {
 
   const chartData = sorted.map((p) => ({
     date: new Date(p.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-    expenses: p.metrics.expenses ?? 0,
+    expenses: computed?.periodMetrics[p.id]?.expenses ?? 0,
     periodId: p.id,
   }));
 

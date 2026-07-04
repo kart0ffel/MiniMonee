@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { AppData, Account, Period, BalanceEntry, Transaction } from '../types';
-import { loadFromStorage, saveToStorage } from '../utils/storage';
+import { AppData, Account, Period, BalanceEntry, Transaction, ExchangeRateEntry, ComputedData } from '../types';
+import { loadFromStorage, saveToStorage, loadComputed, saveComputed } from '../utils/storage';
 import { getExchangeRate } from '../utils/currency';
-import { computeMetrics, recalculateAllMetrics } from '../utils/calculations';
+import { buildComputedData } from '../utils/calculations';
 
 interface DataContextValue {
   data: AppData | null;
+  computed: ComputedData | null;
   setData: (data: AppData) => void;
   updateMeta: (updates: Partial<AppData['meta']>) => void;
   upsertAccount: (account: Account) => void;
@@ -18,6 +19,7 @@ interface DataContextValue {
   deleteTransaction: (txId: string) => void;
   upsertBalanceEntry: (entry: BalanceEntry) => void;
   batchUpsertBalanceEntries: (entries: BalanceEntry[]) => void;
+  upsertExchangeRates: (entries: ExchangeRateEntry[]) => void;
   fetchRate: (date: string, from: string, to: string) => Promise<number>;
   refetchMissingRates: () => Promise<{ fixed: number; failed: number }>;
   recalculate: () => void;
@@ -28,17 +30,21 @@ const DataContext = createContext<DataContextValue | null>(null);
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [data, setDataState] = useState<AppData | null>(() => loadFromStorage());
+  const [computed, setComputedState] = useState<ComputedData | null>(() => loadComputed());
 
-  const setData = useCallback((newData: AppData) => {
-    setDataState(newData);
-    saveToStorage(newData);
-  }, []);
-
+  // Recompute the derived layer whenever source data changes.
   useEffect(() => {
-    if (data) saveToStorage(data);
+    if (!data) {
+      setComputedState(null);
+      saveComputed(null);
+      return;
+    }
+    const newComputed = buildComputedData(data);
+    setComputedState(newComputed);
+    saveComputed(newComputed);
   }, [data]);
 
-  // Helper that runs mutations without stale closure issues
+  // Centralised mutation helper — saves source data immediately.
   const mutate = useCallback((fn: (d: AppData) => AppData) => {
     setDataState((prev) => {
       if (!prev) return prev;
@@ -46,6 +52,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       saveToStorage(next);
       return next;
     });
+  }, []);
+
+  const setData = useCallback((newData: AppData) => {
+    saveToStorage(newData);
+    setDataState(newData);
   }, []);
 
   const updateMeta = useCallback((updates: Partial<AppData['meta']>) => {
@@ -80,54 +91,32 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [mutate]);
 
-  const addPeriod = useCallback(
-    (period: Period, entries: BalanceEntry[]) => {
-      mutate((d) => {
-        const newData: AppData = {
-          ...d,
-          periods: [...d.periods, period],
-          balanceEntries: [...d.balanceEntries, ...entries],
-        };
-        const metrics = computeMetrics(newData, period);
-        return {
-          ...newData,
-          periods: newData.periods.map((p) =>
-            p.id === period.id ? { ...p, metrics } : p,
-          ),
-        };
-      });
-    },
-    [mutate],
-  );
+  const addPeriod = useCallback((period: Period, entries: BalanceEntry[]) => {
+    mutate((d) => ({
+      ...d,
+      periods: [...d.periods, period],
+      balanceEntries: [...d.balanceEntries, ...entries],
+    }));
+  }, [mutate]);
 
-  const updatePeriod = useCallback(
-    (period: Period, entries: BalanceEntry[]) => {
-      mutate((d) => {
-        const newData: AppData = {
-          ...d,
-          periods: d.periods.map((p) => (p.id === period.id ? period : p)),
-          balanceEntries: [
-            ...d.balanceEntries.filter((e) => e.periodId !== period.id),
-            ...entries,
-          ],
-          // Transactions are now standalone and not managed through periods
-        };
-        return recalculateAllMetrics(newData);
-      });
-    },
-    [mutate],
-  );
+  const updatePeriod = useCallback((period: Period, entries: BalanceEntry[]) => {
+    mutate((d) => ({
+      ...d,
+      periods: d.periods.map((p) => (p.id === period.id ? period : p)),
+      balanceEntries: [
+        ...d.balanceEntries.filter((e) => e.periodId !== period.id),
+        ...entries,
+      ],
+    }));
+  }, [mutate]);
 
   const deletePeriod = useCallback((periodId: string) => {
-    mutate((d) => {
-      const newData: AppData = {
-        ...d,
-        periods: d.periods.filter((p) => p.id !== periodId),
-        balanceEntries: d.balanceEntries.filter((e) => e.periodId !== periodId),
-        transactions: d.transactions.filter((t) => t.periodId !== periodId),
-      };
-      return recalculateAllMetrics(newData);
-    });
+    mutate((d) => ({
+      ...d,
+      periods: d.periods.filter((p) => p.id !== periodId),
+      balanceEntries: d.balanceEntries.filter((e) => e.periodId !== periodId),
+      transactions: d.transactions.filter((t) => t.periodId !== periodId),
+    }));
   }, [mutate]);
 
   const upsertBalanceEntry = useCallback((entry: BalanceEntry) => {
@@ -140,7 +129,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         idx >= 0
           ? d.balanceEntries.map((e, i) => (i === idx ? merged : e))
           : [...d.balanceEntries, merged];
-      return recalculateAllMetrics({ ...d, balanceEntries: newEntries });
+      return { ...d, balanceEntries: newEntries };
     });
   }, [mutate]);
 
@@ -157,43 +146,57 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           newEntries = [...newEntries, entry];
         }
       }
-      return recalculateAllMetrics({ ...d, balanceEntries: newEntries });
+      return { ...d, balanceEntries: newEntries };
     });
   }, [mutate]);
 
   const upsertTransaction = useCallback((tx: Transaction) => {
     mutate((d) => {
       const exists = d.transactions.some((t) => t.id === tx.id);
-      const newData: AppData = {
+      return {
         ...d,
         transactions: exists
           ? d.transactions.map((t) => (t.id === tx.id ? tx : t))
           : [...d.transactions, tx],
       };
-      return recalculateAllMetrics(newData);
     });
   }, [mutate]);
 
   const deleteTransaction = useCallback((txId: string) => {
+    mutate((d) => ({
+      ...d,
+      transactions: d.transactions.filter((t) => t.id !== txId),
+    }));
+  }, [mutate]);
+
+  const upsertExchangeRates = useCallback((entries: ExchangeRateEntry[]) => {
     mutate((d) => {
-      const newData: AppData = {
-        ...d,
-        transactions: d.transactions.filter((t) => t.id !== txId),
-      };
-      return recalculateAllMetrics(newData);
+      let rates = [...d.exchangeRates];
+      for (const e of entries) {
+        rates = rates.filter((r) => !(r.from === e.from && r.to === e.to && r.date === e.date));
+        rates.push(e);
+      }
+      return { ...d, exchangeRates: rates };
     });
   }, [mutate]);
 
   const fetchRate = useCallback(
     async (date: string, from: string, to: string): Promise<number> => {
+      if (from === to) return 1;
       if (!data) throw new Error('No data');
-      const { rate, key } = await getExchangeRate(date, from, to, data.exchangeRateCache);
-      if (data.exchangeRateCache[key] === undefined) {
-        mutate((d) => ({
-          ...d,
-          exchangeRateCache: { ...d.exchangeRateCache, [key]: rate },
-        }));
-      }
+
+      const existing = data.exchangeRates.find(
+        (r) => r.from === from && r.to === to && r.date === date,
+      );
+      if (existing) return existing.rate;
+
+      const rate = await getExchangeRate(date, from, to);
+      mutate((d) => {
+        const filtered = d.exchangeRates.filter(
+          (r) => !(r.from === from && r.to === to && r.date === date),
+        );
+        return { ...d, exchangeRates: [...filtered, { date, from, to, rate }] };
+      });
       return rate;
     },
     [data, mutate],
@@ -202,69 +205,60 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const refetchMissingRates = useCallback(async (): Promise<{ fixed: number; failed: number }> => {
     if (!data) return { fixed: 0, failed: 0 };
     const baseCurrency = data.meta.baseCurrency;
-    let fixed = 0;
-    let failed = 0;
-    const newCache = { ...data.exchangeRateCache };
+    let fixed = 0, failed = 0;
+    const newRates: ExchangeRateEntry[] = [...data.exchangeRates];
 
-    const newEntries = await Promise.all(
-      data.balanceEntries.map(async (e) => {
-        if (e.exchangeRate !== 0) return e;
-        const acc = data.accounts.find((a) => a.id === e.accountId);
-        if (!acc || acc.currency === baseCurrency) return e;
-        const period = data.periods.find((p) => p.id === e.periodId);
-        if (!period) return e;
-        try {
-          const { rate, key } = await getExchangeRate(period.date, acc.currency, baseCurrency, newCache);
-          newCache[key] = rate;
-          fixed++;
-          return { ...e, exchangeRate: rate, valueInBase: e.value * rate };
-        } catch {
-          failed++;
-          return e;
-        }
-      }),
-    );
+    // Collect all (from, to, date) pairs referenced by the data that are missing a rate.
+    const needed = new Set<string>();
+    for (const e of data.balanceEntries) {
+      const acc = data.accounts.find((a) => a.id === e.accountId);
+      const period = data.periods.find((p) => p.id === e.periodId);
+      if (acc && period && acc.currency !== baseCurrency)
+        needed.add(`${acc.currency}|${baseCurrency}|${period.date}`);
+    }
+    for (const t of data.transactions) {
+      if (t.currency !== baseCurrency)
+        needed.add(`${t.currency}|${baseCurrency}|${t.date}`);
+    }
 
-    const newTxs = await Promise.all(
-      data.transactions.map(async (t) => {
-        if (t.exchangeRate !== 0 || t.currency === baseCurrency) return t;
-        try {
-          const { rate, key } = await getExchangeRate(t.date, t.currency, baseCurrency, newCache);
-          newCache[key] = rate;
-          fixed++;
-          return { ...t, exchangeRate: rate, amountInBase: t.amount * rate };
-        } catch {
-          failed++;
-          return t;
-        }
-      }),
-    );
+    for (const key of needed) {
+      const [from, to, date] = key.split('|');
+      if (newRates.some((r) => r.from === from && r.to === to && r.date === date)) continue;
+      try {
+        const rate = await getExchangeRate(date, from, to);
+        newRates.push({ date, from, to, rate });
+        fixed++;
+      } catch {
+        failed++;
+      }
+    }
 
-    mutate((d) =>
-      recalculateAllMetrics({
-        ...d,
-        balanceEntries: newEntries,
-        transactions: newTxs,
-        exchangeRateCache: newCache,
-      }),
-    );
+    if (fixed > 0) {
+      mutate((d) => ({ ...d, exchangeRates: newRates }));
+    }
 
     return { fixed, failed };
   }, [data, mutate]);
 
   const recalculate = useCallback(() => {
-    mutate((d) => recalculateAllMetrics(d));
-  }, [mutate]);
+    if (!data) return;
+    const newComputed = buildComputedData(data);
+    setComputedState(newComputed);
+    saveComputed(newComputed);
+  }, [data]);
 
   const clearData = useCallback(() => {
     setDataState(null);
+    setComputedState(null);
     localStorage.removeItem('minimonee_data');
+    localStorage.removeItem('minimonee_computed');
   }, []);
 
   return (
     <DataContext.Provider
       value={{
         data,
+        computed,
         setData,
         updateMeta,
         upsertAccount,
@@ -277,6 +271,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         deleteTransaction,
         upsertBalanceEntry,
         batchUpsertBalanceEntries,
+        upsertExchangeRates,
         fetchRate,
         refetchMissingRates,
         recalculate,

@@ -71,7 +71,7 @@ function StatCard({ label, value, currency, neutral }: { label: string; value: n
 }
 
 export default function Pension() {
-  const { data } = useData();
+  const { data, computed } = useData();
   const [range, setRange] = useState<RangeKey>('1Y');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -94,37 +94,41 @@ export default function Pension() {
     return true;
   });
 
-  function pensionValueForPeriod(periodId: string): number {
+  function pensionValueForPeriod(period: typeof allSorted[number]): number {
     return pensionAccounts.reduce((sum, acc) => {
-      const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === periodId);
-      return sum + (entry?.valueInBase ?? 0);
+      const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === period.id);
+      if (!entry) return sum;
+      if (acc.currency === baseCurrency) return sum + entry.value;
+      const rate = data!.exchangeRates.find(
+        (r) => r.from === acc.currency && r.to === baseCurrency && r.date === period.date,
+      )?.rate ?? 0;
+      return sum + entry.value * rate;
     }, 0);
   }
 
   // Area chart: total pension portfolio value for every period in range
   const portfolioData = periodsInRange.map((p) => ({
     date: fmtDate(p.date),
-    value: pensionValueForPeriod(p.id),
+    value: pensionValueForPeriod(p),
   }));
 
-  // Bar chart: pension P&L, only periods where it's been computed
+  // Bar chart: pension P&L from computed layer
   const plData = periodsInRange
-    .filter((p) => p.metrics.pensionPL !== null)
-    .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.pensionPL! }));
+    .filter((p) => computed?.periodMetrics[p.id]?.pensionPL != null)
+    .map((p) => ({ date: fmtDate(p.date), pl: computed!.periodMetrics[p.id].pensionPL! }));
 
   // Cumulative net contributed — always from the full dataset regardless of range.
-  const pensionTxs = data.transactions.filter((t) => {
-    const ty = t.type as string;
-    return ty === 'pension_activity' || ty === 'pension_contribution' || ty === 'pension_withdrawal';
-  });
+  const pensionTxs = data.transactions.filter((t) => t.type === 'pension_activity');
 
   function cumulativeNetContributed(upToDate: string): number {
     return pensionTxs
       .filter((t) => t.date <= upToDate)
       .reduce((sum, t) => {
-        const ty = t.type as string;
-        if (ty === 'pension_withdrawal') return sum - t.amountInBase;
-        return sum + t.amountInBase; // pension_activity (signed) and pension_contribution (positive)
+        if (t.currency === baseCurrency) return sum + t.amount;
+        const rate = data!.exchangeRates.find(
+          (r) => r.from === t.currency && r.to === baseCurrency && r.date === t.date,
+        )?.rate ?? 0;
+        return sum + t.amount * rate;
       }, 0);
   }
 
@@ -133,10 +137,10 @@ export default function Pension() {
     netContributed: cumulativeNetContributed(p.date),
   }));
 
-  const latest            = periodsInRange[periodsInRange.length - 1];
-  const latestPensionValue = latest ? pensionValueForPeriod(latest.id) : null;
-  const latestPL          = latest?.metrics.pensionPL ?? null;
-  const cumulativePL      = plData.reduce((s, d) => s + d.pl, 0);
+  const latest             = periodsInRange[periodsInRange.length - 1];
+  const latestPensionValue = latest ? pensionValueForPeriod(latest) : null;
+  const latestPL           = latest ? (computed?.periodMetrics[latest.id]?.pensionPL ?? null) : null;
+  const cumulativePL       = plData.reduce((s, d) => s + d.pl, 0);
 
   const noData = allSorted.length < 2;
 
@@ -282,8 +286,8 @@ export default function Pension() {
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {[...periodsInRange].reverse().map((p) => {
-                    const val = pensionValueForPeriod(p.id);
-                    const pl  = p.metrics.pensionPL;
+                    const val = pensionValueForPeriod(p);
+                    const pl  = computed?.periodMetrics[p.id]?.pensionPL ?? null;
                     return (
                       <tr key={p.id} className="hover:bg-gray-50">
                         <td className="px-5 py-3 text-gray-700">

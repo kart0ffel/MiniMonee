@@ -3,7 +3,7 @@ export type AccountCategory =
   | 'pension'
   | 'real_estate'
   | 'liabilities'
-  | 'stocks'
+  | 'investments'
   | 'others';
 
 export type TransactionType =
@@ -12,7 +12,6 @@ export type TransactionType =
   | 'income_interest'
   | 'income_rental'
   | 'income_other'
-  | 'income_salary'   // legacy
   | 'tax_paid'
   | 'investment'
   | 'pension_activity';
@@ -33,8 +32,6 @@ export interface BalanceEntry {
   periodId: string;
   accountId: string;
   value: number;
-  valueInBase: number;
-  exchangeRate: number;
 }
 
 export interface Transaction {
@@ -44,9 +41,14 @@ export interface Transaction {
   type: TransactionType;
   amount: number;
   currency: string;
-  amountInBase: number;
-  exchangeRate: number;
   description: string;
+}
+
+export interface ExchangeRateEntry {
+  date: string;
+  from: string;
+  to: string;
+  rate: number;
 }
 
 export interface PeriodMetrics {
@@ -61,11 +63,6 @@ export interface Period {
   id: string;
   date: string;
   note: string;
-  metrics: PeriodMetrics;
-}
-
-export interface ExchangeRateCache {
-  [key: string]: number;
 }
 
 export interface AppMeta {
@@ -82,7 +79,12 @@ export interface AppData {
   periods: Period[];
   balanceEntries: BalanceEntry[];
   transactions: Transaction[];
-  exchangeRateCache: ExchangeRateCache;
+  exchangeRates: ExchangeRateEntry[];
+}
+
+export interface ComputedData {
+  generatedAt: string;
+  periodMetrics: Record<string, PeriodMetrics>;
 }
 
 export const CATEGORY_LABELS: Record<AccountCategory, string> = {
@@ -90,7 +92,7 @@ export const CATEGORY_LABELS: Record<AccountCategory, string> = {
   pension: 'Pension',
   real_estate: 'Real Estate',
   liabilities: 'Liabilities',
-  stocks: 'Investments',
+  investments: 'Investments',
   others: 'Others',
 };
 
@@ -99,7 +101,7 @@ export const CATEGORY_COLORS: Record<AccountCategory, string> = {
   pension: '#6366f1',
   real_estate: '#f59e0b',
   liabilities: '#ef4444',
-  stocks: '#8b5cf6',
+  investments: '#8b5cf6',
   others: '#6b7280',
 };
 
@@ -109,19 +111,9 @@ export const TRANSACTION_LABELS: Record<TransactionType, string> = {
   income_interest:   'Interest',
   income_rental:     'Rental',
   income_other:      'Other Income',
-  income_salary:     'Salary / Income',  // legacy
   tax_paid:          'Taxes Paid',
   investment:        'Investment',
   pension_activity:  'Pension',
-};
-
-// Fallback labels for legacy stored data migrated from old type names
-export const LEGACY_TRANSACTION_LABELS: Record<string, string> = {
-  ...TRANSACTION_LABELS,
-  investment_bought: 'Investment Bought',
-  investment_sold: 'Investment Sold',
-  pension_contribution: 'Pension Contribution',
-  pension_withdrawal: 'Pension Withdrawal',
 };
 
 export const ALL_CATEGORIES: AccountCategory[] = [
@@ -129,6 +121,6 @@ export const ALL_CATEGORIES: AccountCategory[] = [
   'pension',
   'real_estate',
   'liabilities',
-  'stocks',
+  'investments',
   'others',
 ];

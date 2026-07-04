@@ -1,87 +1,110 @@
 import {
   AppData,
+  Account,
   BalanceEntry,
   Period,
   PeriodMetrics,
   Transaction,
   AccountCategory,
   ALL_CATEGORIES,
+  ExchangeRateEntry,
+  ComputedData,
 } from '../types';
 
-function sumEntries(entries: BalanceEntry[], accountIds: Set<string>): number {
+// Exported so pages can do their own on-the-fly conversions.
+export function getRate(rates: ExchangeRateEntry[], date: string, from: string, to: string): number {
+  if (from === to) return 1;
+  return rates.find((r) => r.from === from && r.to === to && r.date === date)?.rate ?? 0;
+}
+
+function sumEntries(
+  entries: BalanceEntry[],
+  accountIds: Set<string>,
+  accounts: Account[],
+  rates: ExchangeRateEntry[],
+  baseCurrency: string,
+  periodDate: string,
+): number {
   return entries
     .filter((e) => accountIds.has(e.accountId))
-    .reduce((acc, e) => acc + e.valueInBase, 0);
+    .reduce((acc, e) => {
+      const account = accounts.find((a) => a.id === e.accountId);
+      const currency = account?.currency ?? baseCurrency;
+      const rate = currency === baseCurrency ? 1 : getRate(rates, periodDate, currency, baseCurrency);
+      return acc + e.value * rate;
+    }, 0);
 }
 
 function sumTx(
   txs: Transaction[],
   types: Transaction['type'][],
+  baseCurrency: string,
+  rates: ExchangeRateEntry[],
 ): number {
   return txs
     .filter((t) => types.includes(t.type))
-    .reduce((acc, t) => acc + t.amountInBase, 0);
+    .reduce((acc, t) => {
+      const rate = t.currency === baseCurrency ? 1 : getRate(rates, t.date, t.currency, baseCurrency);
+      return acc + t.amount * rate;
+    }, 0);
 }
 
-// Handles both legacy split types and new signed unified types.
-// Returns bought and sold as positive numbers.
-function getInvestFlows(txs: Transaction[]): { bought: number; sold: number } {
+function getInvestFlows(
+  txs: Transaction[],
+  baseCurrency: string,
+  rates: ExchangeRateEntry[],
+): { bought: number; sold: number } {
   let bought = 0, sold = 0;
   for (const t of txs) {
-    const type = t.type as string;
-    if (type === 'investment_bought') bought += t.amountInBase;
-    else if (type === 'investment_sold') sold += t.amountInBase;
-    else if (type === 'investment') {
-      if (t.amountInBase >= 0) bought += t.amountInBase;
-      else sold -= t.amountInBase;
+    if (t.type === 'investment') {
+      const rate = t.currency === baseCurrency ? 1 : getRate(rates, t.date, t.currency, baseCurrency);
+      const amtInBase = t.amount * rate;
+      if (amtInBase >= 0) bought += amtInBase;
+      else sold -= amtInBase;
     }
   }
   return { bought, sold };
 }
 
-function getPensionFlows(txs: Transaction[]): { contrib: number; withdraw: number } {
+function getPensionFlows(
+  txs: Transaction[],
+  baseCurrency: string,
+  rates: ExchangeRateEntry[],
+): { contrib: number; withdraw: number } {
   let contrib = 0, withdraw = 0;
   for (const t of txs) {
-    const type = t.type as string;
-    if (type === 'pension_contribution') contrib += t.amountInBase;
-    else if (type === 'pension_withdrawal') withdraw += t.amountInBase;
-    else if (type === 'pension_activity') {
-      if (t.amountInBase >= 0) contrib += t.amountInBase;
-      else withdraw -= t.amountInBase;
+    if (t.type === 'pension_activity') {
+      const rate = t.currency === baseCurrency ? 1 : getRate(rates, t.date, t.currency, baseCurrency);
+      const amtInBase = t.amount * rate;
+      if (amtInBase >= 0) contrib += amtInBase;
+      else withdraw -= amtInBase;
     }
   }
   return { contrib, withdraw };
 }
 
-export function computeMetrics(
-  data: AppData,
-  period: Period,
-): PeriodMetrics {
-  const periodEntries = data.balanceEntries.filter((e) => e.periodId === period.id);
+export function computeMetrics(data: AppData, period: Period): PeriodMetrics {
+  const { accounts, balanceEntries, transactions, exchangeRates, meta: { baseCurrency } } = data;
+  const periodEntries = balanceEntries.filter((e) => e.periodId === period.id);
 
-  // Find surrounding periods first so we can do date-range transaction filtering
   const sortedPeriods = [...data.periods].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
   const currentIdx = sortedPeriods.findIndex((p) => p.id === period.id);
   const prevPeriod = currentIdx > 0 ? sortedPeriods[currentIdx - 1] : null;
 
-  // Transactions whose date falls in this period's window (standalone or legacy period-linked)
-  const periodTxs = data.transactions.filter((t) => {
+  const periodTxs = transactions.filter((t) => {
     if (t.date > period.date) return false;
     if (prevPeriod && t.date <= prevPeriod.date) return false;
     return true;
   });
 
-  // Net worth by category
   const netWorthByCategory: Partial<Record<AccountCategory, number>> = {};
   for (const cat of ALL_CATEGORIES) {
     const accountIds = new Set(
-      data.accounts
-        .filter((a) => a.category === cat)
-        .map((a) => a.id),
+      accounts.filter((a) => a.category === cat).map((a) => a.id),
     );
-    const total = sumEntries(periodEntries, accountIds);
+    const total = sumEntries(periodEntries, accountIds, accounts, exchangeRates, baseCurrency, period.date);
     if (total !== 0 || periodEntries.some((e) => accountIds.has(e.accountId))) {
       netWorthByCategory[cat] = total;
     }
@@ -93,54 +116,52 @@ export function computeMetrics(
     return { totalNetWorth, netWorthByCategory, expenses: null, unrealizedPL: null, pensionPL: null };
   }
 
-  const prevEntries = data.balanceEntries.filter((e) => e.periodId === prevPeriod.id);
+  const prevEntries = balanceEntries.filter((e) => e.periodId === prevPeriod.id);
 
-  // --- Expenses ---
   const cashAccountIds = new Set(
-    data.accounts.filter((a) => a.category === 'cash').map((a) => a.id),
+    accounts.filter((a) => a.category === 'cash').map((a) => a.id),
   );
-  const startCash = sumEntries(prevEntries, cashAccountIds);
-  const endCash = sumEntries(periodEntries, cashAccountIds);
-  const income = sumTx(periodTxs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
-  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
+  const startCash = sumEntries(prevEntries, cashAccountIds, accounts, exchangeRates, baseCurrency, prevPeriod.date);
+  const endCash   = sumEntries(periodEntries, cashAccountIds, accounts, exchangeRates, baseCurrency, period.date);
+
+  const income = sumTx(
+    periodTxs,
+    ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other'],
+    baseCurrency,
+    exchangeRates,
+  );
+  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs, baseCurrency, exchangeRates);
   const netInvested = investBought - investSold;
-  const taxesPaid = sumTx(periodTxs, ['tax_paid']);
-  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
+  const taxesPaid = sumTx(periodTxs, ['tax_paid'], baseCurrency, exchangeRates);
+  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs, baseCurrency, exchangeRates);
   const expenses = startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
 
-  // --- Unrealized P&L (stocks) ---
   const investmentAccountIds = new Set(
-    data.accounts
-      .filter((a) => a.category === 'stocks')
-      .map((a) => a.id),
+    accounts.filter((a) => a.category === 'investments').map((a) => a.id),
   );
-  const startStocks = sumEntries(prevEntries, investmentAccountIds);
-  const endStocks = sumEntries(periodEntries, investmentAccountIds);
-  const unrealizedPL = endStocks - startStocks - netInvested;
+  const startInvest = sumEntries(prevEntries, investmentAccountIds, accounts, exchangeRates, baseCurrency, prevPeriod.date);
+  const endInvest   = sumEntries(periodEntries, investmentAccountIds, accounts, exchangeRates, baseCurrency, period.date);
+  const unrealizedPL = endInvest - startInvest - netInvested;
 
-  // --- Pension P&L ---
   const pensionAccountIds = new Set(
-    data.accounts.filter((a) => a.category === 'pension').map((a) => a.id),
+    accounts.filter((a) => a.category === 'pension').map((a) => a.id),
   );
-  const startPension = sumEntries(prevEntries, pensionAccountIds);
-  const endPension = sumEntries(periodEntries, pensionAccountIds);
-  const netPensionInput = pensionContrib - pensionWithdraw;
-  const pensionPL = endPension - startPension - netPensionInput;
+  const startPension = sumEntries(prevEntries, pensionAccountIds, accounts, exchangeRates, baseCurrency, prevPeriod.date);
+  const endPension   = sumEntries(periodEntries, pensionAccountIds, accounts, exchangeRates, baseCurrency, period.date);
+  const pensionPL = endPension - startPension - (pensionContrib - pensionWithdraw);
 
   return { totalNetWorth, netWorthByCategory, expenses, unrealizedPL, pensionPL };
 }
 
-export function recalculateAllMetrics(data: AppData): AppData {
+export function buildComputedData(data: AppData): ComputedData {
   const sorted = [...data.periods].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
-
-  const updatedPeriods = sorted.map((period) => ({
-    ...period,
-    metrics: computeMetrics(data, period),
-  }));
-
-  return { ...data, periods: updatedPeriods };
+  const periodMetrics: Record<string, PeriodMetrics> = {};
+  for (const period of sorted) {
+    periodMetrics[period.id] = computeMetrics(data, period);
+  }
+  return { generatedAt: new Date().toISOString(), periodMetrics };
 }
 
 export interface WaterfallStep {
@@ -157,25 +178,25 @@ export function buildRangeWaterfallSteps(
   toPeriod: Period,
   prevFromPeriod: Period | null,
 ): WaterfallStep[] {
+  const { accounts, balanceEntries, transactions, exchangeRates, meta: { baseCurrency } } = data;
+
   const sortedPeriods = [...data.periods].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
 
   const fromIdx = sortedPeriods.findIndex((p) => p.id === fromPeriod.id);
-  const toIdx = sortedPeriods.findIndex((p) => p.id === toPeriod.id);
+  const toIdx   = sortedPeriods.findIndex((p) => p.id === toPeriod.id);
   const periodsInRange = sortedPeriods.slice(fromIdx, toIdx + 1);
 
   const prevEntries = prevFromPeriod
-    ? data.balanceEntries.filter((e) => e.periodId === prevFromPeriod.id)
+    ? balanceEntries.filter((e) => e.periodId === prevFromPeriod.id)
     : [];
-  const toEntries = data.balanceEntries.filter((e) => e.periodId === toPeriod.id);
+  const toEntries = balanceEntries.filter((e) => e.periodId === toPeriod.id);
 
-  const cashIds = new Set(
-    data.accounts.filter((a) => a.category === 'cash').map((a) => a.id),
-  );
+  const cashIds = new Set(accounts.filter((a) => a.category === 'cash').map((a) => a.id));
 
-  const startCash = sumEntries(prevEntries, cashIds);
-  const endCash = sumEntries(toEntries, cashIds);
+  const startCash = sumEntries(prevEntries, cashIds, accounts, exchangeRates, baseCurrency, prevFromPeriod?.date ?? fromPeriod.date);
+  const endCash   = sumEntries(toEntries,   cashIds, accounts, exchangeRates, baseCurrency, toPeriod.date);
 
   let income = 0, investBought = 0, investSold = 0;
   let taxesPaid = 0, pensionContrib = 0, pensionWithdraw = 0;
@@ -183,57 +204,24 @@ export function buildRangeWaterfallSteps(
   for (let i = 0; i < periodsInRange.length; i++) {
     const period = periodsInRange[i];
     const prevForWindow = i === 0 ? prevFromPeriod : periodsInRange[i - 1];
-    const txs = data.transactions.filter((t) => {
+    const txs = transactions.filter((t) => {
       if (t.date > period.date) return false;
       if (prevForWindow && t.date <= prevForWindow.date) return false;
       return true;
     });
-    income += sumTx(txs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
-    const inv = getInvestFlows(txs);
+    income += sumTx(txs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other'], baseCurrency, exchangeRates);
+    const inv = getInvestFlows(txs, baseCurrency, exchangeRates);
     investBought += inv.bought;
-    investSold += inv.sold;
-    taxesPaid += sumTx(txs, ['tax_paid']);
-    const pen = getPensionFlows(txs);
-    pensionContrib += pen.contrib;
+    investSold   += inv.sold;
+    taxesPaid    += sumTx(txs, ['tax_paid'], baseCurrency, exchangeRates);
+    const pen = getPensionFlows(txs, baseCurrency, exchangeRates);
+    pensionContrib  += pen.contrib;
     pensionWithdraw += pen.withdraw;
   }
 
-  const expenses =
-    startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
+  const expenses = startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
 
-  const steps: Array<{ name: string; delta: number }> = [
-    { name: 'Start Cash', delta: startCash },
-    { name: 'Income', delta: income },
-    { name: 'Invest. Bought', delta: -investBought },
-    { name: 'Invest. Sold', delta: investSold },
-    { name: 'Taxes Paid', delta: -taxesPaid },
-    { name: 'Pension Out', delta: -pensionContrib },
-    { name: 'Pension In', delta: pensionWithdraw },
-    { name: 'Living Expenses', delta: -expenses },
-  ];
-
-  const result: WaterfallStep[] = [];
-  let running = 0;
-
-  for (const step of steps) {
-    if (step.name === 'Start Cash') {
-      result.push({ name: step.name, value: step.delta, base: 0, isTotal: true, isNegative: false });
-      running = step.delta;
-    } else {
-      const base = step.delta >= 0 ? running : running + step.delta;
-      result.push({
-        name: step.name,
-        value: Math.abs(step.delta),
-        base,
-        isTotal: false,
-        isNegative: step.delta < 0,
-      });
-      running += step.delta;
-    }
-  }
-
-  result.push({ name: 'End Cash', value: endCash, base: 0, isTotal: true, isNegative: false });
-  return result;
+  return buildSteps(startCash, endCash, income, investBought, investSold, taxesPaid, pensionContrib, pensionWithdraw, expenses);
 }
 
 export function buildWaterfallSteps(
@@ -241,39 +229,44 @@ export function buildWaterfallSteps(
   period: Period,
   prevPeriod: Period | null,
 ): WaterfallStep[] {
-  const periodEntries = data.balanceEntries.filter((e) => e.periodId === period.id);
-  const prevEntries = prevPeriod
-    ? data.balanceEntries.filter((e) => e.periodId === prevPeriod.id)
-    : [];
-  const periodTxs = data.transactions.filter((t) => {
+  const { accounts, balanceEntries, transactions, exchangeRates, meta: { baseCurrency } } = data;
+  const periodEntries = balanceEntries.filter((e) => e.periodId === period.id);
+  const prevEntries   = prevPeriod ? balanceEntries.filter((e) => e.periodId === prevPeriod.id) : [];
+
+  const periodTxs = transactions.filter((t) => {
     if (t.date > period.date) return false;
     if (prevPeriod && t.date <= prevPeriod.date) return false;
     return true;
   });
 
-  const cashIds = new Set(
-    data.accounts.filter((a) => a.category === 'cash').map((a) => a.id),
-  );
+  const cashIds = new Set(accounts.filter((a) => a.category === 'cash').map((a) => a.id));
 
-  const startCash = sumEntries(prevEntries, cashIds);
-  const endCash = sumEntries(periodEntries, cashIds);
-  const income = sumTx(periodTxs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other', 'income_salary']);
-  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs);
-  const taxesPaid = sumTx(periodTxs, ['tax_paid']);
-  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs);
+  const startCash = sumEntries(prevEntries, cashIds, accounts, exchangeRates, baseCurrency, prevPeriod?.date ?? period.date);
+  const endCash   = sumEntries(periodEntries, cashIds, accounts, exchangeRates, baseCurrency, period.date);
 
-  // Expenses is the residual
-  const expenses =
-    startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
+  const income = sumTx(periodTxs, ['income_employment', 'income_dividend', 'income_interest', 'income_rental', 'income_other'], baseCurrency, exchangeRates);
+  const { bought: investBought, sold: investSold } = getInvestFlows(periodTxs, baseCurrency, exchangeRates);
+  const taxesPaid = sumTx(periodTxs, ['tax_paid'], baseCurrency, exchangeRates);
+  const { contrib: pensionContrib, withdraw: pensionWithdraw } = getPensionFlows(periodTxs, baseCurrency, exchangeRates);
+  const expenses = startCash + income - investBought + investSold - taxesPaid - pensionContrib + pensionWithdraw - endCash;
 
+  return buildSteps(startCash, endCash, income, investBought, investSold, taxesPaid, pensionContrib, pensionWithdraw, expenses);
+}
+
+function buildSteps(
+  startCash: number, endCash: number,
+  income: number, investBought: number, investSold: number,
+  taxesPaid: number, pensionContrib: number, pensionWithdraw: number,
+  expenses: number,
+): WaterfallStep[] {
   const steps: Array<{ name: string; delta: number }> = [
-    { name: 'Start Cash', delta: startCash },
-    { name: 'Income', delta: income },
-    { name: 'Invest. Bought', delta: -investBought },
-    { name: 'Invest. Sold', delta: investSold },
-    { name: 'Taxes Paid', delta: -taxesPaid },
-    { name: 'Pension Out', delta: -pensionContrib },
-    { name: 'Pension In', delta: pensionWithdraw },
+    { name: 'Start Cash',      delta: startCash },
+    { name: 'Income',          delta: income },
+    { name: 'Invest. Bought',  delta: -investBought },
+    { name: 'Invest. Sold',    delta: investSold },
+    { name: 'Taxes Paid',      delta: -taxesPaid },
+    { name: 'Pension Out',     delta: -pensionContrib },
+    { name: 'Pension In',      delta: pensionWithdraw },
     { name: 'Living Expenses', delta: -expenses },
   ];
 
@@ -298,6 +291,5 @@ export function buildWaterfallSteps(
   }
 
   result.push({ name: 'End Cash', value: endCash, base: 0, isTotal: true, isNegative: false });
-
   return result;
 }

@@ -53,7 +53,7 @@ function CustomTooltip({ active, payload, label, baseCurrency }: any) {
 }
 
 export default function Overview() {
-  const { data } = useData();
+  const { data, computed } = useData();
   const navigate = useNavigate();
   const [range, setRange] = useState<RangeKey>('all');
   const [customFrom, setCustomFrom] = useState('');
@@ -77,23 +77,26 @@ export default function Overview() {
   });
 
   const chartData = filtered.map((p) => {
+    const metrics = computed?.periodMetrics[p.id];
     const row: Record<string, number | string> = {
       date: new Date(p.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
     };
     for (const cat of ALL_CATEGORIES) {
-      row[CATEGORY_LABELS[cat]] = p.metrics.netWorthByCategory[cat] ?? 0;
+      row[CATEGORY_LABELS[cat]] = metrics?.netWorthByCategory[cat] ?? 0;
     }
     return row;
   });
 
   const latest = sorted[sorted.length - 1];
   const prev = sorted[sorted.length - 2];
-  const netWorthChange = latest && prev
-    ? latest.metrics.totalNetWorth - prev.metrics.totalNetWorth
+  const latestMetrics = latest ? computed?.periodMetrics[latest.id] : undefined;
+  const prevMetrics   = prev   ? computed?.periodMetrics[prev.id]   : undefined;
+  const netWorthChange = latestMetrics && prevMetrics
+    ? latestMetrics.totalNetWorth - prevMetrics.totalNetWorth
     : null;
 
   const usedCategories = ALL_CATEGORIES.filter((cat) =>
-    sorted.some((p) => (p.metrics.netWorthByCategory[cat] ?? 0) !== 0),
+    sorted.some((p) => (computed?.periodMetrics[p.id]?.netWorthByCategory[cat] ?? 0) !== 0),
   );
 
   function toggleCategory(cat: AccountCategory) {
@@ -127,7 +130,7 @@ export default function Overview() {
           <div className="bg-white rounded-xl border border-gray-200 p-4 col-span-2 sm:col-span-2">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Net Worth</p>
             <p className="text-3xl font-bold text-gray-900">
-              {formatCurrency(latest.metrics.totalNetWorth, baseCurrency, true)}
+              {formatCurrency(latestMetrics?.totalNetWorth ?? 0, baseCurrency, true)}
             </p>
             {netWorthChange !== null && (
               <p className={`flex items-center gap-1 text-sm mt-1 ${netWorthChange >= 0 ? 'text-green-600' : 'text-red-500'}`}>
@@ -142,7 +145,7 @@ export default function Overview() {
                 {CATEGORY_LABELS[cat]}
               </p>
               <p className="text-xl font-bold" style={{ color: CATEGORY_COLORS[cat] }}>
-                {formatCurrency(latest.metrics.netWorthByCategory[cat] ?? 0, baseCurrency, true)}
+                {formatCurrency(latestMetrics?.netWorthByCategory[cat] ?? 0, baseCurrency, true)}
               </p>
             </div>
           ))}
@@ -254,9 +257,9 @@ export default function Overview() {
           <h2 className="font-semibold text-gray-900 mb-3">Current Breakdown</h2>
           <div className="space-y-2">
             {ALL_CATEGORIES.map((cat) => {
-              const val = latest.metrics.netWorthByCategory[cat] ?? 0;
+              const val = latestMetrics?.netWorthByCategory[cat] ?? 0;
               if (val === 0) return null;
-              const total = Math.abs(latest.metrics.totalNetWorth) || 1;
+              const total = Math.abs(latestMetrics?.totalNetWorth ?? 0) || 1;
               const pct = Math.round((Math.abs(val) / total) * 100);
               return (
                 <div key={cat} className="flex items-center gap-3">

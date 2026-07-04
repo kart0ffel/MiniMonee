@@ -112,7 +112,7 @@ export default function TransactionInputSection({ txDrafts, setTxDrafts, baseCur
           ))}
         </select>
         <input type="date" value={draft.date || periodDate}
-          onChange={(e) => updateIncomeTx(idx, 'date', e.target.value)} className={dateInputCls} />
+          onChange={(e) => { if (e.target.value) updateIncomeTx(idx, 'date', e.target.value); }} className={dateInputCls} />
         <input type="number" min="0" step="any" value={draft.amount} placeholder="0"
           onChange={(e) => updateIncomeTx(idx, 'amount', e.target.value)} className={amountInputCls} />
         <select value={draft.currency}
@@ -148,7 +148,7 @@ export default function TransactionInputSection({ txDrafts, setTxDrafts, baseCur
           </div>
         </div>
         <input type="date" value={draft.date || periodDate}
-          onChange={(e) => updateTx(field, idx, 'date', e.target.value)} className={dateInputCls} />
+          onChange={(e) => { if (e.target.value) updateTx(field, idx, 'date', e.target.value); }} className={dateInputCls} />
         <input type="number" min="0" step="any" value={draft.amount} placeholder="0"
           onChange={(e) => updateTx(field, idx, 'amount', e.target.value)} className={amountInputCls} />
         <select value={draft.currency}

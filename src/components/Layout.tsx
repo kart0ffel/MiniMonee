@@ -26,7 +26,7 @@ const SECONDARY_ITEMS = [
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { data } = useData();
+  const { data, computed } = useData();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const latestPeriod = data
@@ -35,7 +35,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       )[0]
     : null;
 
-  const netWorth = latestPeriod?.metrics.totalNetWorth ?? 0;
+  const netWorth = latestPeriod && computed
+    ? (computed.periodMetrics[latestPeriod.id]?.totalNetWorth ?? 0)
+    : 0;
   const baseCurrency = data?.meta.baseCurrency ?? 'USD';
   const userName = data?.meta.userName;
 
