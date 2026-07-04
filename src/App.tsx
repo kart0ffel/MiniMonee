@@ -8,6 +8,8 @@ import Overview from './pages/Overview';
 import Expenses from './pages/Expenses';
 import Performance from './pages/Performance';
 import Pension from './pages/Pension';
+import Income from './pages/Income';
+import Taxes from './pages/Taxes';
 import Waterfall from './pages/Waterfall';
 import DataManager from './pages/DataManager';
 import AddTransactions from './pages/AddTransactions';
@@ -28,7 +30,9 @@ function AppRoutes() {
     <Layout>
       <Routes>
         <Route path="/overview" element={<Overview />} />
+        <Route path="/income" element={<Income />} />
         <Route path="/expenses" element={<Expenses />} />
+        <Route path="/taxes" element={<Taxes />} />
         <Route path="/performance" element={<Performance />} />
         <Route path="/pension" element={<Pension />} />
         <Route path="/waterfall" element={<Waterfall />} />
