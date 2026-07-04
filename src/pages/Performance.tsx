@@ -140,6 +140,23 @@ export default function Performance() {
     .filter((p) => p.metrics.unrealizedPL !== null)
     .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.unrealizedPL! }));
 
+  // Cumulative net invested — always computed from the FULL dataset so the
+  // number is correct even when the date range hides earlier periods.
+  const investmentTxs = data.transactions.filter((t) => t.type === 'investment');
+
+  function cumulativeNetInvested(upToDate: string): number {
+    return investmentTxs
+      .filter((t) => t.date <= upToDate)
+      .reduce((sum, t) => sum + t.amountInBase, 0);
+  }
+
+  // Bar chart data for net contributions: only periods in range displayed,
+  // but cumulative is rooted at the beginning of all data.
+  const netContribData = periodsInRange.map((p) => ({
+    date: fmtDate(p.date),
+    netInvested: cumulativeNetInvested(p.date),
+  }));
+
   const latest           = periodsInRange[periodsInRange.length - 1];
   const latestStockValue = latest ? stockValueForPeriod(latest.id) : null;
   const latestPL         = latest?.metrics.unrealizedPL ?? null;
@@ -190,7 +207,11 @@ export default function Performance() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => formatCurrency(v, baseCurrency, true)}
+                  domain={[(dataMin: number) => dataMin * 0.97, (dataMax: number) => dataMax * 1.03]}
+                />
                 <Tooltip content={<AreaTip currency={baseCurrency} />} />
                 <Area
                   type="monotone"
@@ -229,6 +250,30 @@ export default function Performance() {
             </div>
           )}
 
+          {/* Bar chart: cumulative net contributions to stocks */}
+          {netContribData.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Cumulative Net Invested</h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Total capital deployed into stocks (bought − sold) from the beginning of the dataset — not reset by the date range filter.
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={netContribData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
+                  <Tooltip content={<BarTip currency={baseCurrency} />} />
+                  <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
+                  <Bar dataKey="netInvested" name="Net Invested" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                    {netContribData.map((d, i) => (
+                      <Cell key={i} fill={d.netInvested >= 0 ? '#a78bfa' : '#f97316'} opacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           {/* Detail table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100">
@@ -241,6 +286,7 @@ export default function Performance() {
                     <th className="px-5 py-3">Period</th>
                     <th className="px-5 py-3 text-right">Portfolio Value</th>
                     <th className="px-5 py-3 text-right">P&amp;L</th>
+                    <th className="px-5 py-3 text-right">Net Invested (Cumul.)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -257,6 +303,9 @@ export default function Performance() {
                         </td>
                         <td className={`px-5 py-3 text-right font-medium ${pl === null ? 'text-gray-300' : pl >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
                           {pl !== null ? `${pl >= 0 ? '+' : ''}${formatCurrency(pl, baseCurrency)}` : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right text-gray-700">
+                          {formatCurrency(cumulativeNetInvested(p.date), baseCurrency)}
                         </td>
                       </tr>
                     );

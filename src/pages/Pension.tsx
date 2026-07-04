@@ -112,6 +112,27 @@ export default function Pension() {
     .filter((p) => p.metrics.pensionPL !== null)
     .map((p) => ({ date: fmtDate(p.date), pl: p.metrics.pensionPL! }));
 
+  // Cumulative net contributed — always from the full dataset regardless of range.
+  const pensionTxs = data.transactions.filter((t) => {
+    const ty = t.type as string;
+    return ty === 'pension_activity' || ty === 'pension_contribution' || ty === 'pension_withdrawal';
+  });
+
+  function cumulativeNetContributed(upToDate: string): number {
+    return pensionTxs
+      .filter((t) => t.date <= upToDate)
+      .reduce((sum, t) => {
+        const ty = t.type as string;
+        if (ty === 'pension_withdrawal') return sum - t.amountInBase;
+        return sum + t.amountInBase; // pension_activity (signed) and pension_contribution (positive)
+      }, 0);
+  }
+
+  const netContribData = periodsInRange.map((p) => ({
+    date: fmtDate(p.date),
+    netContributed: cumulativeNetContributed(p.date),
+  }));
+
   const latest            = periodsInRange[periodsInRange.length - 1];
   const latestPensionValue = latest ? pensionValueForPeriod(latest.id) : null;
   const latestPL          = latest?.metrics.pensionPL ?? null;
@@ -177,7 +198,11 @@ export default function Pension() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  tickFormatter={(v) => formatCurrency(v, baseCurrency, true)}
+                  domain={[(dataMin: number) => dataMin * 0.97, (dataMax: number) => dataMax * 1.03]}
+                />
                 <Tooltip content={<AreaTip currency={baseCurrency} />} />
                 <Area
                   type="monotone"
@@ -216,6 +241,30 @@ export default function Pension() {
             </div>
           )}
 
+          {/* Bar chart: cumulative net pension contributions */}
+          {netContribData.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Cumulative Net Contributed</h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Total capital contributed to pension (contributions − withdrawals) from the beginning of the dataset — not reset by the date range filter.
+              </p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={netContribData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
+                  <Tooltip content={<BarTip currency={baseCurrency} />} />
+                  <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
+                  <Bar dataKey="netContributed" name="Net Contributed" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                    {netContribData.map((d, i) => (
+                      <Cell key={i} fill={d.netContributed >= 0 ? '#818cf8' : '#f97316'} opacity={0.85} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           {/* Detail table */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100">
@@ -228,6 +277,7 @@ export default function Pension() {
                     <th className="px-5 py-3">Period</th>
                     <th className="px-5 py-3 text-right">Pension Value</th>
                     <th className="px-5 py-3 text-right">P&amp;L</th>
+                    <th className="px-5 py-3 text-right">Net Contributed (Cumul.)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -244,6 +294,9 @@ export default function Pension() {
                         </td>
                         <td className={`px-5 py-3 text-right font-medium ${pl === null ? 'text-gray-300' : pl >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
                           {pl !== null ? `${pl >= 0 ? '+' : ''}${formatCurrency(pl, baseCurrency)}` : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right text-gray-700">
+                          {formatCurrency(cumulativeNetContributed(p.date), baseCurrency)}
                         </td>
                       </tr>
                     );
