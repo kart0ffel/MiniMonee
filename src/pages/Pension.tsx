@@ -1,21 +1,30 @@
 import { useState } from 'react';
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
+import { Period } from '../types';
 
 type RangeKey = '1m' | '3m' | '6m' | '1Y' | '5Y' | 'all' | 'custom';
+type Granularity = 'period' | 'month' | 'quarter' | 'year';
 
 const PRESETS: { key: RangeKey; label: string }[] = [
-  { key: '1m', label: '1M' },
-  { key: '3m', label: '3M' },
-  { key: '6m', label: '6M' },
-  { key: '1Y', label: '1Y' },
-  { key: '5Y', label: '5Y' },
-  { key: 'all', label: 'All' },
+  { key: '1m',     label: '1M'     },
+  { key: '3m',     label: '3M'     },
+  { key: '6m',     label: '6M'     },
+  { key: '1Y',     label: '1Y'     },
+  { key: '5Y',     label: '5Y'     },
+  { key: 'all',    label: 'All'    },
   { key: 'custom', label: 'Custom' },
+];
+
+const GRANULARITIES: { key: Granularity; label: string }[] = [
+  { key: 'period',  label: 'Period'  },
+  { key: 'month',   label: 'Month'   },
+  { key: 'quarter', label: 'Quarter' },
+  { key: 'year',    label: 'Year'    },
 ];
 
 function getRangeFrom(key: RangeKey): string | null {
@@ -26,17 +35,60 @@ function getRangeFrom(key: RangeKey): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+function getBucketKey(date: string, granularity: Granularity): string {
+  if (granularity === 'month')   return date.slice(0, 7);
+  if (granularity === 'year')    return date.slice(0, 4);
+  if (granularity === 'quarter') {
+    const [y, m] = date.split('-').map(Number);
+    return `${y}-Q${Math.ceil(m / 3)}`;
+  }
+  return date;
+}
+
+function getBucketLabel(key: string, granularity: Granularity): string {
+  if (granularity === 'year' || granularity === 'quarter') return key;
+  if (granularity === 'month') {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  }
+  return new Date(key).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+function getBucketLabelLong(key: string, granularity: Granularity): string {
+  if (granularity === 'year' || granularity === 'quarter') return key;
+  if (granularity === 'month') {
+    const [y, m] = key.split('-').map(Number);
+    return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+  return new Date(key).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function AreaTip({ active, payload, label, currency }: any) {
+function CombinedTip({ active, payload, label, currency }: any) {
   if (!active || !payload?.length) return null;
+  const value         = payload.find((p: { dataKey: string }) => p.dataKey === 'value')?.value;
+  const netContributed = payload.find((p: { dataKey: string }) => p.dataKey === 'netContributed')?.value;
   return (
-    <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      <p className="text-indigo-600 font-medium">{formatCurrency(payload[0].value, currency)}</p>
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm min-w-[200px]">
+      <p className="font-semibold text-gray-700 mb-2">{label}</p>
+      {value !== undefined && (
+        <div className="flex items-center justify-between gap-6 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-0.5 shrink-0" style={{ background: '#6366f1' }} />
+            <span className="text-gray-600">Pension Value</span>
+          </span>
+          <span className="font-medium text-gray-900">{formatCurrency(value, currency)}</span>
+        </div>
+      )}
+      {netContributed !== undefined && (
+        <div className="flex items-center justify-between gap-6 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: '#818cf8' }} />
+            <span className="text-gray-600">Net Contributed</span>
+          </span>
+          <span className="font-medium text-gray-900">{formatCurrency(netContributed, currency)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -55,7 +107,9 @@ function BarTip({ active, payload, label, currency }: any) {
   );
 }
 
-function StatCard({ label, value, currency, neutral }: { label: string; value: number | null; currency: string; neutral?: boolean }) {
+function StatCard({ label, value, currency, neutral }: {
+  label: string; value: number | null; currency: string; neutral?: boolean;
+}) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">{label}</p>
@@ -73,6 +127,7 @@ function StatCard({ label, value, currency, neutral }: { label: string; value: n
 export default function Pension() {
   const { data, computed } = useData();
   const [range, setRange] = useState<RangeKey>('1Y');
+  const [granularity, setGranularity] = useState<Granularity>('period');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
@@ -94,7 +149,7 @@ export default function Pension() {
     return true;
   });
 
-  function pensionValueForPeriod(period: typeof allSorted[number]): number {
+  function pensionValueForPeriod(period: Period): number {
     return pensionAccounts.reduce((sum, acc) => {
       const entry = data!.balanceEntries.find((e) => e.accountId === acc.id && e.periodId === period.id);
       if (!entry) return sum;
@@ -106,18 +161,42 @@ export default function Pension() {
     }, 0);
   }
 
-  // Area chart: total pension portfolio value for every period in range
-  const portfolioData = periodsInRange.map((p) => ({
-    date: fmtDate(p.date),
-    value: pensionValueForPeriod(p),
-  }));
+  // Build buckets: one entry per bucket key.
+  // Value = snapshot of LAST period in bucket; P&L = sum of all periods in bucket.
+  type Bucket = {
+    key: string;
+    label: string;
+    labelLong: string;
+    lastPeriod: Period;
+    pl: number | null;
+  };
 
-  // Bar chart: pension P&L from computed layer
-  const plData = periodsInRange
-    .filter((p) => computed?.periodMetrics[p.id]?.pensionPL != null)
-    .map((p) => ({ date: fmtDate(p.date), pl: computed!.periodMetrics[p.id].pensionPL! }));
+  const bucketMap = new Map<string, Bucket>();
+  for (const p of periodsInRange) {
+    const key = getBucketKey(p.date, granularity);
+    if (!bucketMap.has(key)) {
+      bucketMap.set(key, {
+        key,
+        label: getBucketLabel(key, granularity),
+        labelLong: getBucketLabelLong(key, granularity),
+        lastPeriod: p,
+        pl: null,
+      });
+    }
+    const bucket = bucketMap.get(key)!;
+    bucket.lastPeriod = p; // overwrite → keeps the chronologically last period
 
-  // Cumulative net contributed — always from the full dataset regardless of range.
+    const pl = computed?.periodMetrics[p.id]?.pensionPL;
+    if (pl != null) bucket.pl = (bucket.pl ?? 0) + pl;
+  }
+
+  const buckets = [...bucketMap.values()].sort((a, b) => a.key.localeCompare(b.key));
+
+  const plData = buckets
+    .filter((b) => b.pl !== null)
+    .map((b) => ({ date: b.label, pl: b.pl! }));
+
+  // Cumulative net contributed: always from full dataset; shown as of last period in bucket
   const pensionTxs = data.transactions.filter((t) => t.type === 'pension_activity');
 
   function cumulativeNetContributed(upToDate: string): number {
@@ -132,17 +211,21 @@ export default function Pension() {
       }, 0);
   }
 
-  const netContribData = periodsInRange.map((p) => ({
-    date: fmtDate(p.date),
-    netContributed: cumulativeNetContributed(p.date),
+  // Combined dataset: bars (net contributed) + area line (pension value) share one X axis
+  const combinedData = buckets.map((b) => ({
+    date: b.label,
+    value: pensionValueForPeriod(b.lastPeriod),
+    netContributed: cumulativeNetContributed(b.lastPeriod.date),
   }));
 
-  const latest             = periodsInRange[periodsInRange.length - 1];
+  // Stat cards: always reflect the actual latest period snapshot
+  const latest = periodsInRange[periodsInRange.length - 1];
   const latestPensionValue = latest ? pensionValueForPeriod(latest) : null;
-  const latestPL           = latest ? (computed?.periodMetrics[latest.id]?.pensionPL ?? null) : null;
-  const cumulativePL       = plData.reduce((s, d) => s + d.pl, 0);
+  const latestPL = latest ? (computed?.periodMetrics[latest.id]?.pensionPL ?? null) : null;
+  const cumulativePL = buckets.reduce((s, b) => s + (b.pl ?? 0), 0);
 
   const noData = allSorted.length < 2;
+  const granLabel = granularity.charAt(0).toUpperCase() + granularity.slice(1);
 
   return (
     <div className="space-y-6">
@@ -151,52 +234,78 @@ export default function Pension() {
         <p className="text-gray-500 text-sm mt-1">Pension portfolio value and growth over time</p>
       </div>
 
-      {/* Range selector */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            {PRESETS.map(({ key, label }) => (
+              <button key={key} onClick={() => setRange(key)}
+                className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${range === key ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {range === 'custom' && (
+            <div className="flex items-center gap-2 text-sm">
+              <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+              <span className="text-gray-400">to</span>
+              <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
+            </div>
+          )}
+        </div>
+
         <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
-          {PRESETS.map(({ key, label }) => (
-            <button key={key} onClick={() => setRange(key)}
-              className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${range === key ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+          {GRANULARITIES.map(({ key, label }) => (
+            <button key={key} onClick={() => setGranularity(key)}
+              className={`px-3 py-1.5 font-medium transition-colors border-r border-gray-200 last:border-r-0 ${granularity === key ? 'bg-brand-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {label}
             </button>
           ))}
         </div>
-        {range === 'custom' && (
-          <div className="flex items-center gap-2 text-sm">
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
-              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
-            <span className="text-gray-400">to</span>
-            <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
-              className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-brand-500" />
-          </div>
-        )}
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Pension Value"    value={latestPensionValue} currency={baseCurrency} neutral />
-        <StatCard label="Last Period P&L"  value={latestPL}           currency={baseCurrency} />
-        <StatCard label="Cumulative P&L"   value={plData.length ? cumulativePL : null} currency={baseCurrency} />
+        <StatCard label="Pension Value"   value={latestPensionValue} currency={baseCurrency} neutral />
+        <StatCard label="Last Period P&L" value={latestPL}           currency={baseCurrency} />
+        <StatCard label="Cumulative P&L"  value={plData.length ? cumulativePL : null} currency={baseCurrency} />
       </div>
 
       {noData ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
           <p className="text-gray-500">Growth is calculated from the second period onward. Add more data points to see charts.</p>
         </div>
-      ) : portfolioData.length === 0 ? (
+      ) : combinedData.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
           <p className="text-gray-500">No periods in the selected range.</p>
         </div>
       ) : (
         <>
-          {/* Area chart: pension portfolio value */}
+          {/* Combined chart: bars = cumulative net contributed, area = pension value */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-            <h2 className="font-semibold text-gray-900 mb-4">Pension Portfolio Value</h2>
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={portfolioData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            <h2 className="font-semibold text-gray-900 mb-1">Pension Value vs. Net Contributed</h2>
+            <p className="text-xs text-gray-400 mb-1">
+              Bars: cumulative capital contributed (contributions − withdrawals) from the start of the dataset.
+              {granularity !== 'period' && ` Line: pension value as of the last snapshot in each ${granularity}.`}
+            </p>
+            {/* Legend */}
+            <div className="flex gap-5 mb-4 mt-1">
+              <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: '#818cf8' }} />
+                Net Contributed
+              </span>
+              <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                <span className="inline-block w-3 h-0.5 shrink-0" style={{ background: '#6366f1' }} />
+                Pension Value
+              </span>
+            </div>
+            <ResponsiveContainer width="100%" height={320}>
+              <ComposedChart data={combinedData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                 <defs>
                   <linearGradient id="pensionGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.15} />
+                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.12} />
                     <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                   </linearGradient>
                 </defs>
@@ -205,31 +314,33 @@ export default function Pension() {
                 <YAxis
                   tick={{ fontSize: 11 }}
                   tickFormatter={(v) => formatCurrency(v, baseCurrency, true)}
-                  domain={[(dataMin: number) => dataMin * 0.97, (dataMax: number) => dataMax * 1.03]}
+                  width={72}
                 />
-                <Tooltip content={<AreaTip currency={baseCurrency} />} />
+                <Tooltip content={<CombinedTip currency={baseCurrency} />} />
+                <Bar dataKey="netContributed" name="Net Contributed" fill="#818cf8" opacity={0.75} maxBarSize={64} radius={[3, 3, 0, 0]} />
                 <Area
                   type="monotone"
                   dataKey="value"
+                  name="Pension Value"
                   stroke="#6366f1"
                   strokeWidth={2}
                   fill="url(#pensionGradient)"
                   dot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }}
                   activeDot={{ r: 5 }}
                 />
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Bar chart: pension P&L per period */}
+          {/* Bar chart: pension P&L — summed per bucket */}
           {plData.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-              <h2 className="font-semibold text-gray-900 mb-4">P&amp;L per Period</h2>
+              <h2 className="font-semibold text-gray-900 mb-4">P&amp;L per {granLabel}</h2>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={plData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} width={72} />
                   <Tooltip content={<BarTip currency={baseCurrency} />} />
                   <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
                   <Bar dataKey="pl" name="Pension P&L" radius={[4, 4, 0, 0]} maxBarSize={60}>
@@ -240,32 +351,10 @@ export default function Pension() {
                 </BarChart>
               </ResponsiveContainer>
               <p className="text-xs text-gray-400 mt-3">
-                P&amp;L = (End pension value − Start pension value) − Net contributions in the period.
+                {granularity === 'period'
+                  ? 'P&L = (End pension value − Start pension value) − Net contributions in the period.'
+                  : `P&L is the sum of per-period P&Ls within each ${granularity}.`}
               </p>
-            </div>
-          )}
-
-          {/* Bar chart: cumulative net pension contributions */}
-          {netContribData.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
-              <h2 className="font-semibold text-gray-900 mb-1">Cumulative Net Contributed</h2>
-              <p className="text-xs text-gray-400 mb-4">
-                Total capital contributed to pension (contributions − withdrawals) from the beginning of the dataset — not reset by the date range filter.
-              </p>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={netContribData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, baseCurrency, true)} />
-                  <Tooltip content={<BarTip currency={baseCurrency} />} />
-                  <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
-                  <Bar dataKey="netContributed" name="Net Contributed" radius={[4, 4, 0, 0]} maxBarSize={60}>
-                    {netContribData.map((d, i) => (
-                      <Cell key={i} fill={d.netContributed >= 0 ? '#818cf8' : '#f97316'} opacity={0.85} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
             </div>
           )}
 
@@ -278,33 +367,30 @@ export default function Pension() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                    <th className="px-5 py-3">Period</th>
-                    <th className="px-5 py-3 text-right">Pension Value</th>
+                    <th className="px-5 py-3">{granLabel}</th>
+                    <th className="px-5 py-3 text-right">
+                      Pension Value
+                      {granularity !== 'period' && <span className="normal-case font-normal ml-1 text-gray-400">(last snapshot)</span>}
+                    </th>
                     <th className="px-5 py-3 text-right">P&amp;L</th>
                     <th className="px-5 py-3 text-right">Net Contributed (Cumul.)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {[...periodsInRange].reverse().map((p) => {
-                    const val = pensionValueForPeriod(p);
-                    const pl  = computed?.periodMetrics[p.id]?.pensionPL ?? null;
-                    return (
-                      <tr key={p.id} className="hover:bg-gray-50">
-                        <td className="px-5 py-3 text-gray-700">
-                          {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        </td>
-                        <td className="px-5 py-3 text-right font-semibold text-gray-900">
-                          {formatCurrency(val, baseCurrency)}
-                        </td>
-                        <td className={`px-5 py-3 text-right font-medium ${pl === null ? 'text-gray-300' : pl >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
-                          {pl !== null ? `${pl >= 0 ? '+' : ''}${formatCurrency(pl, baseCurrency)}` : '—'}
-                        </td>
-                        <td className="px-5 py-3 text-right text-gray-700">
-                          {formatCurrency(cumulativeNetContributed(p.date), baseCurrency)}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {[...buckets].reverse().map((b) => (
+                    <tr key={b.key} className="hover:bg-gray-50">
+                      <td className="px-5 py-3 text-gray-700">{b.labelLong}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-gray-900">
+                        {formatCurrency(pensionValueForPeriod(b.lastPeriod), baseCurrency)}
+                      </td>
+                      <td className={`px-5 py-3 text-right font-medium ${b.pl === null ? 'text-gray-300' : b.pl >= 0 ? 'text-indigo-600' : 'text-red-500'}`}>
+                        {b.pl !== null ? `${b.pl >= 0 ? '+' : ''}${formatCurrency(b.pl, baseCurrency)}` : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-right text-gray-700">
+                        {formatCurrency(cumulativeNetContributed(b.lastPeriod.date), baseCurrency)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
