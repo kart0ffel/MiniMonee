@@ -13,6 +13,7 @@ import Taxes from './pages/Taxes';
 import Waterfall from './pages/Waterfall';
 import DataManager from './pages/DataManager';
 import AddTransactions from './pages/AddTransactions';
+import IBKRImporter from './pages/IBKRImporter';
 
 function AppRoutes() {
   const { data } = useData();
@@ -38,6 +39,7 @@ function AppRoutes() {
         <Route path="/waterfall" element={<Waterfall />} />
         <Route path="/input" element={<BalanceInput />} />
         <Route path="/transactions" element={<AddTransactions />} />
+        <Route path="/ibkr" element={<IBKRImporter />} />
         <Route path="/accounts" element={<Setup />} />
 <Route path="/data" element={<DataManager />} />
         <Route path="/welcome" element={<Navigate to="/overview" replace />} />

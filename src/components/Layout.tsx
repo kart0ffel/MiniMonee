@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   TrendingUp, BarChart2, Activity, GitCommit,
-  PlusCircle, FilePlus, Settings, Database, Menu, X, PiggyBank, Wallet, Receipt,
+  PlusCircle, FilePlus, Settings, Database, Menu, X, PiggyBank, Wallet, Receipt, FileInput,
 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
@@ -20,6 +20,7 @@ const NAV_ITEMS = [
 const INPUT_ITEMS = [
   { to: '/input',        label: 'Add Period',       icon: PlusCircle },
   { to: '/transactions', label: 'Add Transactions', icon: FilePlus   },
+  { to: '/ibkr',         label: 'IBKR Importer',    icon: FileInput  },
 ];
 
 const SECONDARY_ITEMS = [
