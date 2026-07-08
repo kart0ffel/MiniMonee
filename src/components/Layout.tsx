@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  TrendingUp, BarChart2, Activity, GitCommit,
+  TrendingUp, BarChart2, Activity, GitCommit, LineChart,
   PlusCircle, FilePlus, Settings, Database, Menu, X, PiggyBank, Wallet, Receipt, FileInput,
 } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
@@ -12,7 +12,8 @@ const NAV_ITEMS = [
   { to: '/income',      label: 'Income',              icon: Wallet     },
   { to: '/expenses',    label: 'Expenses',            icon: BarChart2  },
   { to: '/taxes',       label: 'Taxes',               icon: Receipt    },
-  { to: '/performance', label: 'Investment Performance', icon: Activity   },
+  { to: '/performance',  label: 'Investment Performance', icon: Activity   },
+  { to: '/projections',  label: 'Projections',            icon: LineChart  },
   { to: '/pension',     label: 'Pension',             icon: PiggyBank  },
   { to: '/waterfall',   label: 'Waterfall',           icon: GitCommit  },
 ];

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  ComposedChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Area, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, Cell,
 } from 'recharts';
 import { useData } from '../contexts/DataContext';
@@ -63,6 +63,37 @@ function getBucketLabelLong(key: string, granularity: Granularity): string {
     return new Date(y, m - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
   return new Date(key).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ReturnsTip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const mwr = payload.find((p: { dataKey: string }) => p.dataKey === 'mwr')?.value;
+  const twr = payload.find((p: { dataKey: string }) => p.dataKey === 'twr')?.value;
+  const fmt = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm min-w-[200px]">
+      <p className="font-semibold text-gray-700 mb-2">{label}</p>
+      {mwr !== undefined && (
+        <div className="flex items-center justify-between gap-6 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: '#059669' }} />
+            <span className="text-gray-600">MWR</span>
+          </span>
+          <span className={`font-medium ${mwr >= 0 ? 'text-emerald-700' : 'text-red-500'}`}>{fmt(mwr)}</span>
+        </div>
+      )}
+      {twr !== undefined && (
+        <div className="flex items-center justify-between gap-6 py-0.5">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: '#0284c7', borderTop: '1px dashed #0284c7', height: 0 }} />
+            <span className="text-gray-600">TWR</span>
+          </span>
+          <span className={`font-medium ${twr >= 0 ? 'text-sky-700' : 'text-red-500'}`}>{fmt(twr)}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -132,6 +163,8 @@ export default function Performance() {
   const [granularity, setGranularity] = useState<Granularity>('period');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
+  const [showMWR, setShowMWR] = useState(true);
+  const [showTWR, setShowTWR] = useState(false);
 
   if (!data) return null;
 
@@ -220,6 +253,74 @@ export default function Performance() {
     netInvested: cumulativeNetInvested(b.lastPeriod.date),
   }));
 
+  // ── Returns: MWR & TWR via Modified Dietz ────────────────────────────────────
+  // Scoped to the selected range. Returns start at 0% at the first period in
+  // the range. MWR = Modified Dietz overall from range-start to each period.
+  // TWR = chained sub-period Modified Dietz returns.
+  function txBase(tx: { amount: number; currency: string; date: string }): number {
+    if (tx.currency === baseCurrency) return tx.amount;
+    return tx.amount * (data!.exchangeRates.find(
+      (r) => r.from === tx.currency && r.to === baseCurrency && r.date === tx.date,
+    )?.rate ?? 0);
+  }
+
+  const returnsData: { date: string; mwr: number | null; twr: number | null }[] = [];
+
+  if (periodsInRange.length >= 1) {
+    const rp0 = periodsInRange[0];
+    const v0  = stockValueForPeriod(rp0);
+    const d0  = rp0.date;
+
+    const pMWR = new Map<string, number>(); // periodId → cumulative MWR
+    const pTWR = new Map<string, number>(); // periodId → cumulative TWR
+    pMWR.set(rp0.id, 0);
+    pTWR.set(rp0.id, 0);
+
+    let runningTWR = 1.0;
+
+    for (let i = 1; i < periodsInRange.length; i++) {
+      const prev = periodsInRange[i - 1];
+      const curr = periodsInRange[i];
+      const vPrev = stockValueForPeriod(prev);
+      const vCurr = stockValueForPeriod(curr);
+
+      // Sub-period flows (prev.date exclusive, curr.date inclusive)
+      const subFlows = investmentTxs
+        .filter((t) => t.date > prev.date && t.date <= curr.date)
+        .map(txBase);
+      const subCF = subFlows.reduce((s, v) => s + v, 0);
+
+      // TWR: sub-period Modified Dietz (cashflows at midpoint), then chain
+      const spDenom = vPrev + subCF / 2;
+      const spR = Math.abs(spDenom) > 0.01 ? (vCurr - vPrev - subCF) / spDenom : 0;
+      runningTWR *= (1 + spR);
+      pTWR.set(curr.id, runningTWR - 1);
+
+      // MWR: Modified Dietz from range-start to curr
+      const T = (new Date(curr.date).getTime() - new Date(d0).getTime()) / 86400000;
+      let weightedSum = 0;
+      let netSum = 0;
+      for (const t of investmentTxs.filter((t) => t.date > d0 && t.date <= curr.date)) {
+        const amt = txBase(t);
+        const days = (new Date(t.date).getTime() - new Date(d0).getTime()) / 86400000;
+        weightedSum += amt * (T > 0 ? (T - days) / T : 0.5);
+        netSum += amt;
+      }
+      const mwrDenom = v0 + weightedSum;
+      if (Math.abs(mwrDenom) > 0.01) {
+        pMWR.set(curr.id, (vCurr - v0 - netSum) / mwrDenom);
+      }
+    }
+
+    for (const b of buckets) {
+      returnsData.push({
+        date: b.label,
+        mwr: pMWR.get(b.lastPeriod.id) ?? null,
+        twr: pTWR.get(b.lastPeriod.id) ?? null,
+      });
+    }
+  }
+
   // Stat cards: always reflect the actual latest period snapshot
   const latest = periodsInRange[periodsInRange.length - 1];
   const latestStockValue = latest ? stockValueForPeriod(latest) : null;
@@ -285,6 +386,71 @@ export default function Performance() {
         </div>
       ) : (
         <>
+          {/* Returns chart: MWR & TWR */}
+          {returnsData.length >= 2 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+              <h2 className="font-semibold text-gray-900 mb-1">Money-Weighted &amp; Time-Weighted Return</h2>
+              <p className="text-xs text-gray-400 mb-3">
+                Cumulative return from the first period in the selected range. Both use Modified Dietz (GIPS standard; approximates true IRR/XIRR).
+              </p>
+              {/* Toggles */}
+              <div className="flex gap-3 mb-4">
+                <button
+                  onClick={() => setShowMWR((v) => !v)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                    showMWR ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-gray-200 bg-white text-gray-400'
+                  }`}
+                >
+                  <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: showMWR ? '#059669' : '#d1d5db' }} />
+                  MWR
+                </button>
+                <button
+                  onClick={() => setShowTWR((v) => !v)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${
+                    showTWR ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-gray-200 bg-white text-gray-400'
+                  }`}
+                >
+                  <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: showTWR ? '#0284c7' : '#d1d5db', borderTop: showTWR ? '1.5px dashed #0284c7' : '1.5px dashed #d1d5db', height: 0 }} />
+                  TWR
+                </button>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={returnsData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+                    width={72}
+                  />
+                  <Tooltip content={<ReturnsTip />} />
+                  <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
+                  {showMWR && (
+                    <Line
+                      dataKey="mwr"
+                      stroke="#059669"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#059669', strokeWidth: 0 }}
+                      activeDot={{ r: 5 }}
+                      connectNulls={false}
+                    />
+                  )}
+                  {showTWR && (
+                    <Line
+                      dataKey="twr"
+                      stroke="#0284c7"
+                      strokeWidth={2}
+                      strokeDasharray="5 3"
+                      dot={{ r: 3, fill: '#0284c7', strokeWidth: 0 }}
+                      activeDot={{ r: 5 }}
+                      connectNulls={false}
+                    />
+                  )}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           {/* Combined chart: bars = cumulative net invested, area = portfolio value */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
             <h2 className="font-semibold text-gray-900 mb-1">Investment Value vs. Net Invested</h2>

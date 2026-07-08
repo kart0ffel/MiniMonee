@@ -14,6 +14,7 @@ import Waterfall from './pages/Waterfall';
 import DataManager from './pages/DataManager';
 import AddTransactions from './pages/AddTransactions';
 import IBKRImporter from './pages/IBKRImporter';
+import Projections from './pages/Projections';
 
 function AppRoutes() {
   const { data } = useData();
@@ -35,6 +36,7 @@ function AppRoutes() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/taxes" element={<Taxes />} />
         <Route path="/performance" element={<Performance />} />
+        <Route path="/projections" element={<Projections />} />
         <Route path="/pension" element={<Pension />} />
         <Route path="/waterfall" element={<Waterfall />} />
         <Route path="/input" element={<BalanceInput />} />

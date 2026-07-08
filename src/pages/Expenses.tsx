@@ -33,10 +33,11 @@ const GRANULARITIES: { key: Granularity; label: string }[] = [
 
 // Series config — fixed categorical colors + display metadata
 const SERIES = {
-  income:      { label: 'Income',        color: '#1baf7a', activeClass: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
-  expenses:    { label: 'Expenses',      color: '#f97316', activeClass: 'border-orange-300 bg-orange-50 text-orange-800'   },
-  taxes:       { label: 'Taxes',         color: '#e34948', activeClass: 'border-red-300 bg-red-50 text-red-800'            },
-  savingsRate: { label: 'Savings Rate',  color: '#2a78d6', activeClass: 'border-blue-300 bg-blue-50 text-blue-800'         },
+  income:             { label: 'Income',              color: '#1baf7a', activeClass: 'border-emerald-300 bg-emerald-50 text-emerald-800' },
+  expenses:           { label: 'Expenses',            color: '#f97316', activeClass: 'border-orange-300 bg-orange-50 text-orange-800'   },
+  taxes:              { label: 'Taxes',               color: '#e34948', activeClass: 'border-red-300 bg-red-50 text-red-800'            },
+  savingsRate:        { label: 'Savings Rate',        color: '#2a78d6', activeClass: 'border-blue-300 bg-blue-50 text-blue-800'         },
+  savingsRateWoTax:   { label: 'Savings Rate (wo Tax)', color: '#7c3aed', activeClass: 'border-violet-300 bg-violet-50 text-violet-800'  },
 } as const;
 
 function getRangeFrom(key: RangeKey): string | null {
@@ -93,7 +94,7 @@ function getTxBucketKey(
 function ExpensesTooltip({ active, payload, label, baseCurrency }: any) {
   if (!active || !payload?.length) return null;
 
-  const order: (keyof typeof SERIES)[] = ['income', 'expenses', 'taxes', 'savingsRate'];
+  const order: (keyof typeof SERIES)[] = ['income', 'expenses', 'taxes', 'savingsRate', 'savingsRateWoTax'];
   const items = order
     .map((key) => ({ key, entry: payload.find((p: { dataKey: string }) => p.dataKey === key) }))
     .filter(({ entry }) => entry != null && entry.value != null);
@@ -103,13 +104,14 @@ function ExpensesTooltip({ active, payload, label, baseCurrency }: any) {
       <p className="font-semibold text-gray-700 mb-2">{label}</p>
       {items.map(({ key, entry }) => {
         const { label: seriesLabel, color } = SERIES[key];
-        const formatted = key === 'savingsRate'
+        const isRate = key === 'savingsRate' || key === 'savingsRateWoTax';
+        const formatted = isRate
           ? `${(entry.value * 100).toFixed(1)}%`
           : formatCurrency(entry.value, baseCurrency);
         return (
           <div key={key} className="flex items-center justify-between gap-6 py-0.5">
             <span className="flex items-center gap-1.5">
-              {key === 'savingsRate'
+              {isRate
                 ? <span className="inline-block w-3 h-0.5 rounded shrink-0" style={{ background: color }} />
                 : <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color }} />}
               <span className="text-gray-600">{seriesLabel}</span>
@@ -151,6 +153,7 @@ export default function Expenses() {
   const [showExpenses, setShowExpenses] = useState(true);
   const [showTaxes, setShowTaxes] = useState(true);
   const [showSavingsRate, setShowSavingsRate] = useState(true);
+  const [showSavingsRateWoTax, setShowSavingsRateWoTax] = useState(true);
 
   if (!data) return null;
 
@@ -210,7 +213,8 @@ export default function Expenses() {
       const expenses = expenseByBucket.get(key) ?? 0;
       const taxes    = taxByBucket.get(key) ?? 0;
       const savingsRate = income > 0 ? (income - expenses - taxes) / income : null;
-      return { key, date: getBucketLabel(key, granularity), income, expenses, taxes, savingsRate };
+      const savingsRateWoTax = income > 0 ? (income - expenses) / income : null;
+      return { key, date: getBucketLabel(key, granularity), income, expenses, taxes, savingsRate, savingsRateWoTax };
     });
 
   // Summary stats
@@ -232,7 +236,7 @@ export default function Expenses() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Expenses</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Expenses = Start Cash + Income − Invested (net) − Taxes − Pension − End Cash. Savings Rate = (Income − Expenses − Taxes) / Income.
+          Expenses = Start Cash + Income − Invested (net) − Taxes − Pension − End Cash. Savings Rate = (Income − Expenses − Taxes) / Income. Rate (wo Tax) = (Income − Expenses) / Income.
         </p>
       </div>
 
@@ -288,10 +292,11 @@ export default function Expenses() {
 
       {/* Series toggles */}
       <div className="flex flex-wrap gap-2">
-        <TogglePill id="income"      active={showIncome}      onToggle={() => setShowIncome(!showIncome)}           />
-        <TogglePill id="expenses"    active={showExpenses}    onToggle={() => setShowExpenses(!showExpenses)}       />
-        <TogglePill id="taxes"       active={showTaxes}       onToggle={() => setShowTaxes(!showTaxes)}             />
-        <TogglePill id="savingsRate" active={showSavingsRate} onToggle={() => setShowSavingsRate(!showSavingsRate)} />
+        <TogglePill id="income"             active={showIncome}           onToggle={() => setShowIncome(!showIncome)}                       />
+        <TogglePill id="expenses"           active={showExpenses}         onToggle={() => setShowExpenses(!showExpenses)}                   />
+        <TogglePill id="taxes"             active={showTaxes}            onToggle={() => setShowTaxes(!showTaxes)}                         />
+        <TogglePill id="savingsRate"       active={showSavingsRate}      onToggle={() => setShowSavingsRate(!showSavingsRate)}             />
+        <TogglePill id="savingsRateWoTax"  active={showSavingsRateWoTax} onToggle={() => setShowSavingsRateWoTax(!showSavingsRateWoTax)}   />
       </div>
 
       {/* Summary cards */}
@@ -337,7 +342,7 @@ export default function Expenses() {
         <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
           <h2 className="font-semibold text-gray-900 mb-4">Income, Expenses &amp; Taxes per {granLabel}</h2>
           <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={chartData} margin={{ top: 8, right: showSavingsRate ? 48 : 10, left: 10, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: (showSavingsRate || showSavingsRateWoTax) ? 48 : 10, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} />
 
@@ -349,8 +354,8 @@ export default function Expenses() {
                 width={72}
               />
 
-              {/* Right axis: savings rate % — only when visible */}
-              {showSavingsRate && (
+              {/* Right axis: savings rate % — shown when either rate line is visible */}
+              {(showSavingsRate || showSavingsRateWoTax) && (
                 <YAxis
                   yAxisId="right"
                   orientation="right"
@@ -429,6 +434,21 @@ export default function Expenses() {
                   connectNulls={false}
                 />
               )}
+
+              {/* Savings rate without taxes — line on secondary axis */}
+              {showSavingsRateWoTax && (
+                <Line
+                  yAxisId="right"
+                  dataKey="savingsRateWoTax"
+                  name="Savings Rate (wo Tax)"
+                  stroke="#7c3aed"
+                  strokeWidth={2}
+                  strokeDasharray="5 3"
+                  dot={{ r: 3, fill: '#7c3aed', strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
+                  connectNulls={false}
+                />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -449,6 +469,7 @@ export default function Expenses() {
                   <th className="px-5 py-3 text-right">Expenses</th>
                   <th className="px-5 py-3 text-right">Taxes</th>
                   <th className="px-5 py-3 text-right">Savings Rate</th>
+                  <th className="px-5 py-3 text-right">Rate (wo Tax)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -469,6 +490,11 @@ export default function Expenses() {
                     }`}>
                       {row.savingsRate !== null ? `${(row.savingsRate * 100).toFixed(1)}%` : '—'}
                     </td>
+                    <td className={`px-5 py-3 text-right font-medium tabular-nums ${
+                      row.savingsRateWoTax === null ? 'text-gray-300' : row.savingsRateWoTax >= 0 ? 'text-violet-600' : 'text-red-500'
+                    }`}>
+                      {row.savingsRateWoTax !== null ? `${(row.savingsRateWoTax * 100).toFixed(1)}%` : '—'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -481,6 +507,15 @@ export default function Expenses() {
                   <td className={`px-5 py-3 text-right tabular-nums ${avgSavingsRate === null ? 'text-gray-300' : avgSavingsRate >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
                     {avgSavingsRate !== null ? `${(avgSavingsRate * 100).toFixed(1)}% avg` : '—'}
                   </td>
+                  {(() => {
+                    const rows = chartData.filter((d) => d.savingsRateWoTax !== null);
+                    const avg = rows.length > 0 ? rows.reduce((s, d) => s + d.savingsRateWoTax!, 0) / rows.length : null;
+                    return (
+                      <td className={`px-5 py-3 text-right tabular-nums ${avg === null ? 'text-gray-300' : avg >= 0 ? 'text-violet-600' : 'text-red-500'}`}>
+                        {avg !== null ? `${(avg * 100).toFixed(1)}% avg` : '—'}
+                      </td>
+                    );
+                  })()}
                 </tr>
               </tfoot>
             </table>
