@@ -9,6 +9,8 @@ import { useData } from '../contexts/DataContext';
 import { formatCurrency } from '../utils/currency';
 import { AccountCategory, ALL_CATEGORIES, CATEGORY_LABELS, CATEGORY_COLORS } from '../types';
 
+const POSITIVE_CAT_ORDER: AccountCategory[] = ['pension', 'real_estate', 'cash', 'investments', 'others'];
+
 type RangeKey = '1m' | '3m' | '6m' | '1Y' | '5Y' | 'all' | 'custom';
 
 const PRESETS: { key: RangeKey; label: string }[] = [
@@ -226,7 +228,7 @@ export default function Overview() {
             <p className="text-center text-gray-400 py-12 text-sm">No periods in the selected range.</p>
           ) : (
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }} barCategoryGap="30%">
+              <BarChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }} barCategoryGap="6%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                 <YAxis
@@ -235,16 +237,24 @@ export default function Overview() {
                 />
                 <Tooltip content={<CustomTooltip baseCurrency={baseCurrency} />} />
                 <ReferenceLine y={0} stroke="#374151" strokeWidth={1} />
-                {usedCategories.map((cat) => (
+                {POSITIVE_CAT_ORDER.filter((cat) => usedCategories.includes(cat)).map((cat) => (
                   <Bar
                     key={cat}
                     dataKey={CATEGORY_LABELS[cat]}
                     stackId="a"
                     fill={CATEGORY_COLORS[cat]}
                     hide={hiddenCategories.has(cat)}
-                    maxBarSize={80}
                   />
                 ))}
+                {usedCategories.includes('liabilities') && (
+                  <Bar
+                    key="liabilities"
+                    dataKey={CATEGORY_LABELS['liabilities']}
+                    stackId="a"
+                    fill={CATEGORY_COLORS['liabilities']}
+                    hide={hiddenCategories.has('liabilities')}
+                  />
+                )}
               </BarChart>
             </ResponsiveContainer>
           )}

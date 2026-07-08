@@ -96,9 +96,10 @@ export default function BalanceInput() {
     : 'the beginning';
   const currentDateLabel = new Date(periodDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-  const netWorthEst = activeAccounts.reduce(
-    (s, a) => s + (parseFloat(effectiveValue(a.id) || '0') || 0), 0,
-  );
+  const netWorthEst = activeAccounts.reduce((s, a) => {
+    const v = parseFloat(effectiveValue(a.id) || '0') || 0;
+    return s + (a.category === 'liabilities' ? -v : v);
+  }, 0);
 
   // Existing transactions in the range [prevPeriod.date < date <= periodDate]
   const existingTxsInRange = [...data.transactions]
@@ -310,25 +311,39 @@ export default function BalanceInput() {
             </div>
             {Object.entries(grouped).map(([cat, accounts]) => (
               <div key={cat}>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                  {CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS]}
-                </h3>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS]}
+                  </h3>
+                  {cat === 'liabilities' && (
+                    <span className="text-xs text-gray-400">enter amount owed as a positive number</span>
+                  )}
+                </div>
                 <div className="space-y-2">
-                  {accounts.map((acc) => (
-                    <div key={acc.id} className="flex items-center gap-3">
-                      <label className="flex-1 text-sm text-gray-700 font-medium">{acc.name}</label>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-gray-500 w-8 text-right">{acc.currency}</span>
-                        <input
-                          type="number"
-                          value={effectiveValue(acc.id)}
-                          onChange={(e) => setBalances((prev) => ({ ...prev, [acc.id]: e.target.value }))}
-                          placeholder="0"
-                          className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        />
+                  {accounts.map((acc) => {
+                    const isLiability = acc.category === 'liabilities';
+                    return (
+                      <div key={acc.id} className="flex items-center gap-3">
+                        <label className="flex-1 text-sm text-gray-700 font-medium">{acc.name}</label>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-500 w-8 text-right">{acc.currency}</span>
+                          <input
+                            type="number"
+                            min={isLiability ? '0' : undefined}
+                            value={effectiveValue(acc.id)}
+                            onChange={(e) => {
+                              let val = e.target.value;
+                              if (isLiability && val !== '' && parseFloat(val) < 0)
+                                val = String(Math.abs(parseFloat(val)));
+                              setBalances((prev) => ({ ...prev, [acc.id]: val }));
+                            }}
+                            placeholder="0"
+                            className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-brand-500"
+                          />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

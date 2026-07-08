@@ -106,7 +106,7 @@ export function computeMetrics(data: AppData, period: Period): PeriodMetrics {
     );
     const total = sumEntries(periodEntries, accountIds, accounts, exchangeRates, baseCurrency, period.date);
     if (total !== 0 || periodEntries.some((e) => accountIds.has(e.accountId))) {
-      netWorthByCategory[cat] = total;
+      netWorthByCategory[cat] = cat === 'liabilities' ? -total : total;
     }
   }
 

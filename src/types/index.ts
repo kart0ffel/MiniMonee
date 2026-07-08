@@ -97,12 +97,12 @@ export const CATEGORY_LABELS: Record<AccountCategory, string> = {
 };
 
 export const CATEGORY_COLORS: Record<AccountCategory, string> = {
-  cash: '#10b981',
-  pension: '#6366f1',
-  real_estate: '#f59e0b',
-  liabilities: '#ef4444',
-  investments: '#8b5cf6',
-  others: '#6b7280',
+  cash:        '#059669', // emerald-600  — was #10b981, contrast too low vs white
+  pension:     '#6366f1', // indigo-500
+  real_estate: '#b45309', // amber-700    — was #f59e0b, contrast too low vs white
+  liabilities: '#ef4444', // red-500
+  investments: '#8b5cf6', // violet-500
+  others:      '#0891b2', // sky-600      — was #6b7280, below chroma floor (read as gray)
 };
 
 export const TRANSACTION_LABELS: Record<TransactionType, string> = {
